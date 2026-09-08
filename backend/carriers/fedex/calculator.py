@@ -299,6 +299,34 @@ def _calculate_raw(
     }
 
 
+def _expand_packages_qty(packages):
+    """
+    `packages` dari RateRequest.extra boleh pakai format kompak dengan key
+    'qty' (N buah identik) — konvensi yang sama dipakai UPS calculator.py.
+    Tapi `_calculate_raw()`/`nonstandard_fees.py` (kode lama, sebelum
+    migrasi) mengasumsikan 1 dict = 1 collie fisik TANPA key 'qty' — kalau
+    'qty' ikut ke-unpack ke check_package_surcharge(**pkg), itu crash
+    (TypeError: unexpected keyword argument 'qty').
+
+    Fungsi ini expand tiap dict ber-qty>1 jadi N dict individual (tanpa key
+    'qty'), supaya kontrak lama tetap terpenuhi tanpa mengubah
+    nonstandard_fees.py sama sekali.
+    """
+    if not packages:
+        return packages
+    expanded = []
+    for i, pkg in enumerate(packages):
+        pkg = dict(pkg)
+        qty = int(pkg.pop("qty", 1) or 1)
+        base_label = pkg.get("label", f"Collie {i + 1}")
+        for n in range(qty):
+            item = dict(pkg)
+            if qty > 1:
+                item["label"] = f"{base_label} ({n + 1}/{qty})"
+            expanded.append(item)
+    return expanded
+
+
 def calculate(request: RateRequest) -> RateResult:
     """
     Entry point utama (interface baru).
@@ -324,7 +352,7 @@ def calculate(request: RateRequest) -> RateResult:
         apply_oda_opa=extra.get("apply_oda_opa", True),
         apply_minimum=extra.get("apply_minimum", True),
         round_invoice=extra.get("round_invoice", True),
-        packages=extra.get("packages"),
+        packages=_expand_packages_qty(extra.get("packages")),
         freight_units=extra.get("freight_units"),
         special_handling=extra.get("special_handling"),
         auto_switch_service=extra.get("auto_switch_service", True),

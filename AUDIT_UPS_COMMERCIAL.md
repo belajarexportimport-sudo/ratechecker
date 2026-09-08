@@ -69,16 +69,59 @@ Negara yang tidak masuk grup manapun (mis. Singapura — sudah kami tes,
 cocok 100%) tetap benar, karena memang seharusnya fallback ke zone angka.
 
 ### Rekomendasi perbaikan
-Port fungsi `getExtendedGroupKey()` dari `script.js` (baris ~551-573) ke
-Python di `backend/carriers/ups/rates/commercial.py`, dipanggil SEBELUM
-fallback ke zone angka di `lookup_rate()`. Perlu bawa juga:
-- Tabel `A26_B26_GROUPS` (alias nama negara → nama grup) dari `script.js`.
-- Logic khusus China ("prefer named header over zone 3 & 10").
-- Perbedaan grup export vs import (grup UK cuma ada di import, misalnya) —
-  jangan asumsikan grup yang sama berlaku di kedua arah.
 
-**Saya belum memperbaiki ini** (fokus audit dulu sesuai arahan) — tinggal
-bilang kalau mau saya lanjutkan perbaikannya.
+**✅ SUDAH DIPERBAIKI** (lihat commit di `backend/carriers/ups/rates/commercial.py`
+dan `backend/carriers/ups/calculator.py`):
+- Port `A26_B26_GROUPS` + fungsi `_get_group_key()` dari `getExtendedGroupKey()`
+  di `script.js`, termasuk aturan prioritas China di atas zone angka.
+- `lookup_rate()` sekarang terima parameter `country` opsional — kalau
+  named-group ketemu, dipakai; kalau tidak, fallback ke zone angka seperti
+  semula (jadi 100% aman untuk negara yang tidak punya override).
+- `calculator.py` diupdate untuk selalu mengirim `country` saat rate_module
+  yang dipakai adalah `commercial`.
+
+**Sudah diverifikasi ulang setelah perbaikan:**
+- Jepang export saver 2.0kg A26: **629.400** (sebelumnya salah 590.100) ✓
+- China South export saver 2.0kg A26: **629.400** (beda dari zone 10 numerik
+  yang 532.600 — jadi override memang berpengaruh nyata di sini) ✓
+- **Regresi seluruh 221 negara** (A26, saver, export) — 0 mismatch antara
+  hasil `lookup_rate()` dan resolusi manual (group kalau ada, else zone) ✓
+- Negara tanpa override (mis. Singapura) tetap tidak berubah ✓
+- Full pipeline `compare()` FedEx×UPS tetap jalan normal, angka Publish tidak
+  berubah sama sekali (hanya jalur commercial UPS yang tersentuh) ✓
+
+**Koreksi atas klaim sebelumnya di draf audit ini**: contoh "China" yang saya
+tulis di atas kurang presisi — untuk kombinasi `saver`+`export` spesifik,
+ternyata nilai `'rest of china'` KEBETULAN identik dengan zone-3 numerik
+(jadi tidak actually salah untuk kasus itu), sedangkan `'china south'`
+(zone 10) memang berbeda signifikan dari zone numerik. Pola per-kombinasi
+service/direction ini bervariasi — makanya perbaikan di atas general
+(selalu cek group dulu), bukan hardcode per negara tertentu saja.
+
+## ⚠️ Temuan tambahan (BELUM diperbaiki, butuh keputusan bisnis)
+
+Saat investigasi bug di atas, saya menemukan hal ini di `calculator.py`:
+
+```python
+rate_module = _get_rate_module(request.rate_type)   # "commercial" -> module `commercial`
+rate, mode = rate_module.lookup_rate(..., rate_type=request.rate_type)  # "commercial", bukan "a26"/"b26"!
+```
+
+Di dalam `lookup_rate()`: `data_map = A26_RATES if rate_type.lower() == "a26" else B26_RATES`.
+Karena `request.rate_type` yang dikirim `compare()`/API selalu literal
+`"commercial"` (bukan `"a26"` atau `"b26"`), maka kondisi `== "a26"` SELALU
+False → **`rate_type="commercial"` akan selalu resolve ke B26, tidak pernah
+A26**, kecuali pemanggil API secara eksplisit mengirim `"a26"` sebagai string
+rate_type (bukan `"commercial"`).
+
+**Ini mungkin memang disengaja** (barangkali kontrak commercial customer ini
+memang B26, A26 cuma referensi/tier lain) — saya TIDAK mengubah ini karena
+butuh konfirmasi bisnis, bukan keputusan teknis. Kalau yang dimaksud
+"commercial" itu seharusnya bisa pilih A26 ATAU B26 (bukan selalu B26),
+perlu ditambahkan field/opsi eksplisit di `RateRequest` (mis.
+`extra={"ups_tier": "a26"}`) yang dibaca `calculator.py` sebelum fallback ke
+default.
+
 
 ## Bug lain yang sudah tercatat sebelumnya (dari sesi index.html)
 1. `check_package_surcharge()` FedEx crash kalau field `packages` diisi
@@ -91,3 +134,25 @@ bilang kalau mau saya lanjutkan perbaikannya.
    (China, Jepang, US, HK, negara-negara Eropa besar).
 2. **Prioritas sedang**: fix bug `packages` FedEx (nonstandard.py).
 3. **Prioritas rendah**: rapikan urutan import `carriers/fedex/zones.py`.
+
+
+## Update — 2 bug lain (dari sesi index.html) juga sudah diperbaiki
+
+1. **`check_package_surcharge()` crash saat `packages` diisi** — root cause:
+   `carriers/fedex/calculator.py` meneruskan `extra["packages"]` mentah-mentah
+   ke `_calculate_raw()`, padahal format kompak (`{"qty": N, ...}`, konvensi
+   yang sama dipakai UPS) tidak dikenal oleh `nonstandard_fees.py` versi lama
+   (mengharapkan 1 dict = 1 collie fisik, tanpa key `qty`). Fix: fungsi
+   `_expand_packages_qty()` baru di `calculator.py` yang expand tiap dict
+   ber-`qty` jadi N dict individual SEBELUM masuk `_calculate_raw()` — tidak
+   mengubah `nonstandard_fees.py` sama sekali. Sudah diverifikasi: qty=1 tidak
+   lagi crash, qty=3 menghasilkan 3 collie individual dengan CWT benar.
+2. **Circular import di `carriers/fedex/zones.py`** — root cause:
+   `rates/__init__.py` eager-import `publish`/`commercial` di top-level,
+   sehingga siapapun yang import `rates.common` (termasuk `zones.py`) memicu
+   `publish.py` mencoba import balik dari `zones.py` yang masih pertengahan
+   load. Fix: import `publish`/`commercial` dipindah jadi lazy (di dalam
+   fungsi `calculate_base()`), tidak mengubah API publik modul ini sama
+   sekali. Sudah diverifikasi: import `zones.py` langsung, import
+   `calculator.py` duluan, dan import `rates` package standalone — ketiganya
+   jalan tanpa error.
