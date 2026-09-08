@@ -143,12 +143,18 @@ def calculate(request: RateRequest) -> RateResult:
 
     # ── 4. Rate lookup ─────────────────────────────────────────────────────
     rate_module = _get_rate_module(request.rate_type)
+    lookup_kwargs = dict(rate_type=request.rate_type)
+    if rate_module.__name__.endswith(".commercial"):
+        # A26/B26 punya named-group override per negara (lihat commercial.py) —
+        # publish.lookup_rate tidak menerima kwarg ini, jadi hanya dikirim
+        # kalau rate_module memang commercial.
+        lookup_kwargs["country"] = country
     rate, mode = rate_module.lookup_rate(
         direction, 
         service, 
         zone, 
         total_chargeable, 
-        rate_type=request.rate_type
+        **lookup_kwargs,
     )
 
     if rate is None:
