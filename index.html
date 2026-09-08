@@ -81,6 +81,25 @@
   .api-dot.ok { background: var(--good); }
   .api-dot.bad { background: var(--bad); }
 
+  .mixed-content-warn {
+    display: none;
+    background: #fff3e0;
+    border: 1px solid #f0c896;
+    color: #8a4a10;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    margin-bottom: 18px;
+  }
+  .mixed-content-warn code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
   .layout {
     display: grid;
     grid-template-columns: 340px 1fr;
@@ -358,6 +377,13 @@
       <input type="text" id="apiBase" value="http://127.0.0.1:8000">
     </div>
   </header>
+
+  <div class="mixed-content-warn" id="mixedContentWarn">
+    ⚠️ Halaman ini dibuka lewat <strong>https://</strong> tapi API diarahkan ke <strong>http://</strong> —
+    browser kemungkinan besar akan memblokir koneksi ini (mixed content). Untuk trial, buka
+    <code>index.html</code> langsung dari komputer (double-click file, atau
+    <code>python -m http.server</code>), bukan lewat GitHub Pages.
+  </div>
 
   <div class="layout">
 
@@ -812,15 +838,51 @@ renderCombos();
 
 async function pingApi() {
   const dot = el("apiDot");
+  const warn = el("mixedContentWarn");
+  dot.title = "";
+  if (warn) warn.style.display = "none";
+
+  const mixedContentRisk = location.protocol === "https:" && apiBase().startsWith("http://");
+  if (mixedContentRisk && warn) {
+    warn.style.display = "block";
+  }
+
   try {
     const res = await fetch(apiBase() + "/", { method: "GET" });
     dot.className = "api-dot " + (res.ok ? "ok" : "bad");
+    dot.title = res.ok ? "Backend terhubung." : `Backend membalas HTTP ${res.status}.`;
   } catch (e) {
     dot.className = "api-dot bad";
+    dot.title = mixedContentRisk
+      ? "Gagal konek — kemungkinan besar diblokir browser krn halaman ini https:// tapi API http:// (mixed content)."
+      : "Gagal konek ke backend — cek apakah `python run.py` masih jalan.";
   }
 }
 pingApi();
 el("apiBase").addEventListener("change", pingApi);
+
+function diagnoseFetchFailure(err) {
+  const mixedContentRisk = location.protocol === "https:" && apiBase().startsWith("http://");
+  if (mixedContentRisk) {
+    return `Halaman ini dibuka lewat <strong>https://</strong> (${location.host}), tapi API diarahkan ke
+      <strong>http://</strong> (tidak terenkripsi). Browser modern MEMBLOKIR ini secara diam-diam
+      ("mixed content") — makanya errornya cuma muncul generik "Failed to fetch".<br><br>
+      <strong>Cara paling cepat untuk trial:</strong> jangan buka index.html lewat GitHub Pages dulu.
+      Simpan file ini ke komputer, lalu:
+      <ul style="margin:8px 0 0 18px; padding:0;">
+        <li>Double-click <code>index.html</code> langsung dari folder (buka sebagai <code>file://</code>), ATAU</li>
+        <li>Jalankan <code>python -m http.server 5500</code> di folder yang sama, buka <code>http://127.0.0.1:5500</code></li>
+      </ul>
+      Backend (<code>python run.py</code>) tetap harus jalan di komputer yang sama.`;
+  }
+  return `Gagal menghubungi backend: <strong>${err.message}</strong><br>
+    Kemungkinan penyebab (paling sering ke paling jarang):<br>
+    <ul style="margin:8px 0 0 18px; padding:0;">
+      <li>Server FastAPI belum/berhenti jalan — pastikan terminal <code>python run.py</code> masih terbuka tanpa error</li>
+      <li>Alamat API di kanan atas salah/beda port dari yang tertulis di terminal</li>
+      <li>Firewall/antivirus memblokir koneksi ke localhost</li>
+    </ul>`;
+}
 
 function fmtIDR(v) {
   const n = Math.round(Number(v) || 0);
@@ -971,11 +1033,7 @@ el("quoteForm").addEventListener("submit", async (ev) => {
     renderResults(data);
   } catch (e) {
     el("apiDot").className = "api-dot bad";
-    area.innerHTML = `<div class="error-box">
-      Gagal menghubungi backend: <strong>${e.message}</strong><br>
-      Pastikan server FastAPI jalan (<code>python run.py</code>) di alamat yang tertulis di kanan atas,
-      dan CORS tidak diblok browser.
-    </div>`;
+    area.innerHTML = `<div class="error-box">${diagnoseFetchFailure(e)}</div>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "Bandingkan Rate";
