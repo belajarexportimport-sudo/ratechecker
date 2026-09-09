@@ -123,7 +123,13 @@ def _parse_rate_request(data):
 
 def _parse_combinations(data):
     """
-    Parse field 'combinations' (list of [carrier, rate_type]) tanpa Pydantic.
+    Parse field 'combinations' (list of [carrier, rate_type] atau
+    [carrier, rate_type, extra]) tanpa Pydantic. Elemen ke-3 (dict) opsional
+    dipakai utk override RateRequest.extra per combo -- mis. pilih tier UPS
+    commercial eksplisit: ["ups", "commercial", {"ups_tier": "a26"}]. Tanpa
+    elemen ke-3, combo UPS commercial generik di-expand otomatis jadi 2
+    baris hasil oleh compare() (lihat AUDIT_UPS_COMMERCIAL.md -- B26 tidak
+    lagi default diam-diam).
     Return None kalau tidak diisi (biar compare() pakai default-nya).
     """
     raw = _field(data, "combinations", list, default=None)
@@ -131,11 +137,20 @@ def _parse_combinations(data):
         return None
     combos = []
     for i, item in enumerate(raw):
-        if not isinstance(item, list) or len(item) != 2:
+        if not isinstance(item, list) or len(item) not in (2, 3):
             raise ApiValidationError(
-                f"combinations[{i}] harus list 2 elemen [carrier, rate_type]."
+                f"combinations[{i}] harus list 2 elemen [carrier, rate_type], "
+                f"atau 3 elemen [carrier, rate_type, extra] utk override "
+                f"eksplisit (mis. tier UPS commercial)."
             )
-        combos.append((str(item[0]), str(item[1])))
+        if len(item) == 3:
+            if not isinstance(item[2], dict):
+                raise ApiValidationError(
+                    f"combinations[{i}][2] (extra override) harus berupa object/dict."
+                )
+            combos.append((str(item[0]), str(item[1]), dict(item[2])))
+        else:
+            combos.append((str(item[0]), str(item[1])))
     return combos
 
 

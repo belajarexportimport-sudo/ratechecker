@@ -337,3 +337,83 @@ tidak bisa balik tanpa ketahuan.
   package normal (tanpa surcharge), dan WWEF (waive total + floor 71kg).
 
 **Hasil akhir sekarang: 64 test, semua PASS.**
+
+## Update — Keputusan bisnis final: B26 TIDAK LAGI default diam-diam (A26 selalu tersedia eksplisit)
+
+Menindaklanjuti item "⚠️ Temuan tambahan (BELUM diperbaiki, butuh keputusan bisnis)" di atas —
+keputusan sudah turun: **A26 tetap dibutuhkan** (bukan dead tier), UPS commercial
+punya **2 rate card**: A26 & B26, berbeda dari FedEx commercial yang cuma 1.
+Konsekuensinya, default diam-diam ke B26 dihapus:
+
+- `calculate()` sekarang **raise `UPSRateError`** kalau `rate_type="commercial"`
+  generik dipanggil TANPA tier eksplisit (dulu: diam-diam resolve ke B26).
+  Tier wajib eksplisit lewat `rate_type="a26"`/`"b26"` langsung, atau
+  `extra={"ups_tier": "a26"/"b26"}`.
+- `rate_type="a26"`/`"b26"` langsung (tanpa perlu `extra.ups_tier`) sekarang
+  didukung penuh sebagai jalur pertama-kelas — sebelumnya jalur ini ada tapi
+  notes-nya salah (selalu bilang "default ke B26" walau yang dipakai A26,
+  karena logic notes lama cuma cek `extra.ups_tier`, bukan `request.rate_type`
+  langsung — bug laten ini ikut diperbaiki di commit yang sama).
+- Konflik `rate_type` vs `extra.ups_tier` yang berbeda (mis. `rate_type="a26"`
+  tapi `extra={"ups_tier":"b26"}`) → `UPSRateError` jelas, bukan salah satu
+  menang diam-diam.
+- Fungsi baru `calculate_commercial_tiers(request)` — hitung A26 & B26
+  sekaligus, `-> {"a26": RateResult, "b26": RateResult}`, dipakai caller yang
+  perlu tampilkan keduanya berdampingan.
+- `compare.py`: combo `("ups", "commercial")` (2-tuple, generik) sekarang
+  **otomatis di-expand jadi 2 baris hasil** (`rate_type` ditandai
+  `"commercial_a26"` / `"commercial_b26"`) — A26 & B26 SELALU muncul
+  berdampingan di hasil perbandingan, tidak ada yang tersembunyi. Combo
+  3-tuple dengan override eksplisit (`("ups", "commercial", {"ups_tier": "a26"})`)
+  TIDAK di-expand — cuma 1 baris sesuai yang diminta.
+- `api/routes.py::_parse_combinations()` diperluas terima elemen ke-3 opsional
+  (`[carrier, rate_type, extra]`) di body `/api/rates/compare`, supaya
+  override eksplisit ini bisa dipakai lewat HTTP juga, bukan cuma dari kode
+  Python.
+
+**Test diupdate/ditambah**: `test_ups.py` (tier & helper baru, +8 test),
+`test_full_matrix_sweep.py` (sweep UPS commercial dipecah jadi a26/b26
+eksplisit — generik `"commercial"` sekarang diverifikasi 0 success/all
+expected-error, bukan lagi >500 success), `test_comparison.py` (assert 5
+hasil, bukan 4, utk combo lama yg sekarang expand), `test_api.py` (endpoint
+`/calculate` dgn tier eksplisit, endpoint generik sekarang assert 400, dan
+`/compare` assert 5 hasil + combo 3-elemen). **Total sekarang: 86 test.**
+
+⚠️ **Ini breaking change yang disengaja** — kode/klien apapun yang masih
+kirim `rate_type="commercial"` UPS tanpa tier akan mulai dapat error (400 di
+HTTP), bukan lagi hasil B26 diam-diam. Ini konsisten dgn keputusan bisnis di
+atas, tapi perlu dikomunikasikan ke konsumen API kalau ada yang belum
+di-update.
+
+## Update — Fitur baru: Markup/Upsell FedEx commercial (15%/20%/25%/30%)
+
+Permintaan baru (bukan bug fix): FedEx commercial butuh opsi upsell dari
+acuan Commercial Rate Card — **kebalikan** dari `discount_pct` yang sudah
+ada (menaikkan, bukan mengurangi).
+
+- Parameter baru `extra["markup_pct"]` di `fedex/calculator.py`, hanya
+  menerima preset **15, 20, 25, atau 30** (persen) — nilai lain `ValueError`
+  jelas.
+- **Khusus `rate_type="commercial"`** — dipakai di `rate_type="publish"` →
+  `ValueError` jelas (FedEx cuma 1 rate card commercial, beda dari UPS
+  A26/B26 yang memang 2 rate card terpisah; markup ini murni upsell niaga,
+  bukan tier rate card lain).
+- Muncul sebagai baris positif `"Markup Commercial (X%)"` di `surcharges`
+  (menaikkan `total`), dihitung dari `base_price` — sama seperti
+  `discount_pct` dihitung dari `base_price`, tidak mempengaruhi surcharge
+  lain. Detail lengkap juga ada di `RateResult.extra["markup"]`.
+- Independen dari `discount_pct` — boleh dipakai bersamaan (dua lever bisnis
+  terpisah, dua-duanya dihitung dari base rate yang sama).
+- Sudah dicoba lewat HTTP (`/api/rates/calculate` dgn `extra.markup_pct`),
+  bukan cuma lewat fungsi Python langsung.
+
+**Test baru**: `test_fedex.py::FedExCommercialMarkupTests` (9 test) +
+2 test HTTP di `test_api.py`.
+
+**Hasil akhir sekarang: 86 test, semua PASS** (dijalankan langsung via
+`unittest` untuk 77 test yang tidak butuh `fastapi`; 9 test HTTP lain
+divalidasi lewat simulasi manual identik terhadap fungsi parsing/handler
+yang sama di `routes.py`, karena environment audit ini tidak punya akses
+jaringan utk instal `fastapi` — perlu dijalankan ulang via
+`python smoke_test.py` di environment dgn `fastapi` terpasang utk
+konfirmasi akhir).
