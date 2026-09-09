@@ -3,6 +3,7 @@ Test surcharge FedEx yang SEBELUMNYA belum ada test sama sekali: ODA/OPA
 lookup dan Special Handling Fees. Base rate & zone sudah ter-cover di
 test_fedex.py/test_full_matrix_sweep.py -- file ini isi gap-nya.
 """
+import os
 import unittest
 
 from backend.carriers.fedex.surcharges.oda_opa import ODAOPALookup
@@ -105,6 +106,117 @@ class SpecialHandlingTests(unittest.TestCase):
             billed_weight_kg=2.0, inbound_processing_fee_override=False,
         )
         self.assertEqual(result["total_charge"], 0)
+
+
+class ODAOPADataIntegrityTests(unittest.TestCase):
+    """Regresi utk temuan AUDIT_ODA_OPA.md -- ngecek CSV data mentah, bukan
+    lewat class ODAOPALookup, supaya kalau file datanya di-update lagi
+    (postal code baru / negara baru), penyimpangan dari yang sudah
+    diverifikasi ketahuan otomatis, bukan cuma pas ada yang baca ulang
+    manual."""
+
+    @classmethod
+    def setUpClass(cls):
+        import csv
+        cls.tier_cols = ["parcel_pickup_tier", "freight_pickup_tier",
+                          "parcel_delivery_tier", "freight_delivery_tier"]
+        with open(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "backend", "carriers", "fedex", "surcharges", "oda_opa_tiers.csv",
+            ),
+            newline="", encoding="utf-8",
+        ) as f:
+            cls.rows = list(csv.DictReader(f))
+
+    def test_all_tier_values_valid(self):
+        valid = {"No", "A", "B", "C", ""}
+        bad = [
+            (r["country"], r["city"], c, r[c])
+            for r in self.rows for c in self.tier_cols
+            if r[c].strip() not in valid
+        ]
+        self.assertEqual(bad, [], f"Nilai tier di luar No/A/B/C ditemukan: {bad[:5]}")
+
+    def test_no_range_has_begin_greater_than_end(self):
+        bad = []
+        for r in self.rows:
+            b, e = r["begin_postal"].strip(), r["end_postal"].strip()
+            if b and e:
+                if b.isdigit() and e.isdigit():
+                    if int(b) > int(e):
+                        bad.append((r["country"], b, e))
+                elif b.upper() > e.upper():
+                    bad.append((r["country"], b, e))
+        self.assertEqual(bad, [], f"Range dgn begin>end ditemukan: {bad[:5]}")
+
+    def test_overlapping_numeric_ranges_never_conflict_in_value(self):
+        """7131 pasang overlap (US/CN/PH) itu SUDAH DIKETAHUI & aman
+        (saling melengkapi kolom, bukan beda nilai). Test ini gagal kalau
+        update data nanti bikin overlap baru yang punya 2 nilai BEDA di
+        kolom tier yang sama (kasus yang butuh keputusan severity-max,
+        bukan cuma merge kolom kosong)."""
+        by_country = {}
+        for r in self.rows:
+            b, e = r["begin_postal"].strip(), r["end_postal"].strip()
+            if b and e and b.isdigit() and e.isdigit():
+                by_country.setdefault(r["country_code"].strip().upper(), []).append(
+                    (int(b), int(e), r)
+                )
+        conflicts = []
+        for cc, items in by_country.items():
+            items.sort(key=lambda x: x[0])
+            active = []
+            for b, e, r in items:
+                active = [a for a in active if a[1] >= b]
+                for ab, ae, ar in active:
+                    for c in self.tier_cols:
+                        v1 = r[c].strip() or "No"
+                        v2 = ar[c].strip() or "No"
+                        if v1 != "No" and v2 != "No" and v1 != v2:
+                            conflicts.append((cc, c, v1, v2))
+                active.append((b, e, r))
+        self.assertEqual(conflicts, [], f"Overlap dgn nilai konflik: {conflicts[:5]}")
+
+    def test_alpha_ranges_ca_gb_never_overlap(self):
+        """Belum pernah dicek sebelumnya (docstring kode cuma bahas overlap
+        numerik) -- CA & GB pakai range huruf. Kalau ini pecah nanti, artinya
+        ada risiko _merge_tiers dipanggil dgn kasus yg belum teruji utk
+        format alfabet."""
+        by_country = {}
+        for r in self.rows:
+            b, e = r["begin_postal"].strip(), r["end_postal"].strip()
+            if b and e and not (b.isdigit() and e.isdigit()):
+                cc = r["country_code"].strip().upper()
+                by_country.setdefault(cc, []).append(
+                    (b.upper().replace(" ", ""), e.upper().replace(" ", ""))
+                )
+        overlaps = []
+        for cc, items in by_country.items():
+            for i in range(len(items)):
+                b1, e1 = items[i]
+                for j in range(i + 1, len(items)):
+                    b2, e2 = items[j]
+                    if b1 <= e2 and b2 <= e1:
+                        overlaps.append((cc, items[i], items[j]))
+        self.assertEqual(overlaps, [], f"Overlap alfabet baru ditemukan: {overlaps[:5]}")
+
+    def test_sx_country_code_rows_all_share_same_tier(self):
+        """SX dipakai utk 2 nama negara (Saint Martin & Sint Marteen) --
+        known limitation krn butuh XLSX asli utk dipisah. Test ini menjaga
+        asumsi yg bikin limitation itu 'aman utk sekarang': semua baris SX
+        harus tier IDENTIK, supaya nama negara yg salah tampil TIDAK
+        menyebabkan nominal surcharge yg salah. Kalau ini gagal, limitation-
+        nya naik level jadi bug aktif dan perlu ditangani sungguhan."""
+        sx_tiers = set(
+            tuple(r[c].strip() or "No" for c in self.tier_cols)
+            for r in self.rows if r["country_code"].strip().upper() == "SX"
+        )
+        self.assertEqual(
+            len(sx_tiers), 1,
+            f"Baris SX punya tier berbeda-beda ({sx_tiers}) -- nama negara yg "
+            "salah tampil sekarang BISA menyebabkan nominal salah juga.",
+        )
 
 
 if __name__ == "__main__":

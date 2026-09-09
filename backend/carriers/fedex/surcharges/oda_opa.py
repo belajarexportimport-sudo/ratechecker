@@ -6,7 +6,10 @@ Cari tahu apakah suatu kota/kode pos kena:
 - Out-of-Delivery-Area Surcharge (ODA) -> berlaku saat PENGIRIMAN/DELIVERY
 Masing-masing dipecah lagi jadi Parcel Services & Freight Services.
 
-Sumber data: ODA_OPA_tiers_codes.xlsx (114 negara, ~67.600 baris kode pos/kota).
+Sumber data: ODA_OPA_tiers_codes.xlsx (114 negara di sumber, tapi hanya 112
+country_code unik yang muncul di CSV hasil ekstraksi -- lihat AUDIT_ODA_OPA.md
+poin 6, kemungkinan besar karena Saint Martin & Sint Maarten berbagi 1 kode
+"SX"; belum dipastikan lewat XLSX asli). ~67.600 baris kode pos/kota.
 Data mentah sudah diekstrak jadi 'oda_opa_tiers.csv' (satu folder dengan file ini)
 supaya loading cepat & tidak butuh openpyxl saat runtime.
 
