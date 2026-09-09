@@ -1,0 +1,263 @@
+# Audit: `backend/carriers/ups/` vs `ups-calculator` (referensi production)
+
+**Metode:** bukan baca-kode-lalu-percaya — tiap komponen di-diff terhadap data
+mentah di `ups-calculator` (bandingkan angka literal, bukan cuma bandingkan
+struktur), atau dijalankan side-by-side dan dibandingkan hasilnya.
+
+## ✅ Yang PERSIS SAMA (sudah diverifikasi, bukan diasumsikan)
+
+| Komponen | Metode verifikasi | Hasil |
+|---|---|---|
+| DIM divisor (5000) | Baca konstanta di kedua sisi | Sama |
+| AHS / LPS / OMX / Brokerage Import (280.016 / 1.058.200 / 4.121.800 / 118.647) | Baca konstanta di kedua sisi | Sama |
+| Surge fee (SURGE_V3, per region, export & import) | Diff nilai per region | Sama persis, termasuk yang di-nol-kan (Europe/Americas/dll untuk import) |
+| Optional costs (Extended/Remote Area, PEB, Residential, Adult Signature, dll) | Diff nilai satu-satu | Sama persis |
+| Formula FSI & VAT (FSI base exclude brokerage; VAT base include brokerage+FSI) | Baca & bandingkan formula | Sama persis |
+| Zone Index (221 negara × 6 field: saverExport/Import, expeditedExport/Import, wwefExport/Import) | **Diff terprogram, seluruh 221 negara** | **0 selisih** |
+| Tabel rate Publish — 8 tabel (export/import × envelope/saver/expedited/wwef), semua zone 1-10, semua weight break | **Diff terprogram, seluruh isi tabel** | **0 selisih** |
+| Minimum weight WWEF (71kg) | Baca logic di kedua sisi | Sama |
+
+Bagian di atas ini boleh dipercaya — bukan cuma "keliatan mirip", tapi
+benar-benar di-diff nilai per nilai.
+
+## ❌ BUG DITEMUKAN: Commercial rate (A26/B26) salah untuk negara dengan "named group override"
+
+**Ini bug nyata dengan dampak harga, bukan kosmetik.**
+
+### Akar masalah
+Rate sheet A26/B26 (commercial) UPS **tidak murni per-zone-angka (1-10)**.
+Untuk sejumlah negara/grup negara tertentu, ada baris rate KHUSUS yang
+menggantikan rate zone-angka biasa — misalnya Jepang, Korea, Taiwan itu
+zone 3, tapi commercial rate mereka **tidak** pakai tabel zone-3 biasa,
+melainkan tabel bernama `"japan, korea, taiwan"` yang nilainya beda.
+
+Referensi (`ups-calculator/script.js`, fungsi `getExtendedGroupKey` /
+`lookupExtendedRate`) secara eksplisit **memprioritaskan named-group ini di
+atas zone angka** — bahkan ada komentar khusus di kode:
+> `// EXPLICIT: Prefer Named Headers for China over Zones 3 & 10`
+
+**`backend/carriers/ups/calculator.py` (baris ~144-149) tidak melakukan ini
+sama sekali** — dia selalu memanggil `lookup_rate(direction, service, zone, ...)`
+dengan `zone` = angka 1-10 dari Zone Index, tidak pernah cek apakah negara
+tsb punya named-group override di `A26_RATES`/`B26_RATES`.
+
+### Pembuktian konkret (bukan dugaan)
+
+```
+Jepang, export saver, 2.0kg, commercial (A26):
+  Backend (lookup by zone=3) → Rp 590.100   ❌ SALAH
+  Reference (named group "japan, korea, taiwan") → Rp 629.400   ✓ BENAR
+  Selisih: -6,7% (backend under-charge)
+```
+
+| Negara | Zone angka (dipakai backend) | Rate backend (zone) | Rate benar (named group) |
+|---|---|---|---|
+| Jepang / Korea / Taiwan | 3 | 590.100 | 629.400 |
+| Hong Kong / Filipina / Thailand / Vietnam | 2 | 463.600 | 753.600 |
+| Australia | 3 | 590.100 | 959.900 |
+| China (semua varian) | 3 atau 10 | 590.100 / — | (beda lagi, ada 2 varian: "rest of china" & "china south") |
+| Amerika Serikat | 5 | 939.100 | 1.403.600 |
+| Prancis / Jerman / Italia / Belanda (**export**) | 6 | 746.200 | 1.492.200 |
+| Inggris (**import** saja — export tidak override) | 5 | (perlu re-cek arah import) | beda tabel `"france germany italy united kingdom"` |
+
+*(Angka di atas contoh untuk berat 2.0kg saver saja — pola errornya berlaku
+di semua weight-break dan kedua rate card A26 & B26, karena struktur datanya
+sama.)*
+
+### Negara yang TIDAK terdampak (aman)
+Negara yang tidak masuk grup manapun (mis. Singapura — sudah kami tes,
+cocok 100%) tetap benar, karena memang seharusnya fallback ke zone angka.
+
+### Rekomendasi perbaikan
+
+**✅ SUDAH DIPERBAIKI** (lihat commit di `backend/carriers/ups/rates/commercial.py`
+dan `backend/carriers/ups/calculator.py`):
+- Port `A26_B26_GROUPS` + fungsi `_get_group_key()` dari `getExtendedGroupKey()`
+  di `script.js`, termasuk aturan prioritas China di atas zone angka.
+- `lookup_rate()` sekarang terima parameter `country` opsional — kalau
+  named-group ketemu, dipakai; kalau tidak, fallback ke zone angka seperti
+  semula (jadi 100% aman untuk negara yang tidak punya override).
+- `calculator.py` diupdate untuk selalu mengirim `country` saat rate_module
+  yang dipakai adalah `commercial`.
+
+**Sudah diverifikasi ulang setelah perbaikan:**
+- Jepang export saver 2.0kg A26: **629.400** (sebelumnya salah 590.100) ✓
+- China South export saver 2.0kg A26: **629.400** (beda dari zone 10 numerik
+  yang 532.600 — jadi override memang berpengaruh nyata di sini) ✓
+- **Regresi seluruh 221 negara** (A26, saver, export) — 0 mismatch antara
+  hasil `lookup_rate()` dan resolusi manual (group kalau ada, else zone) ✓
+- Negara tanpa override (mis. Singapura) tetap tidak berubah ✓
+- Full pipeline `compare()` FedEx×UPS tetap jalan normal, angka Publish tidak
+  berubah sama sekali (hanya jalur commercial UPS yang tersentuh) ✓
+
+**Koreksi atas klaim sebelumnya di draf audit ini**: contoh "China" yang saya
+tulis di atas kurang presisi — untuk kombinasi `saver`+`export` spesifik,
+ternyata nilai `'rest of china'` KEBETULAN identik dengan zone-3 numerik
+(jadi tidak actually salah untuk kasus itu), sedangkan `'china south'`
+(zone 10) memang berbeda signifikan dari zone numerik. Pola per-kombinasi
+service/direction ini bervariasi — makanya perbaikan di atas general
+(selalu cek group dulu), bukan hardcode per negara tertentu saja.
+
+## ⚠️ Temuan tambahan (BELUM diperbaiki, butuh keputusan bisnis)
+
+Saat investigasi bug di atas, saya menemukan hal ini di `calculator.py`:
+
+```python
+rate_module = _get_rate_module(request.rate_type)   # "commercial" -> module `commercial`
+rate, mode = rate_module.lookup_rate(..., rate_type=request.rate_type)  # "commercial", bukan "a26"/"b26"!
+```
+
+Di dalam `lookup_rate()`: `data_map = A26_RATES if rate_type.lower() == "a26" else B26_RATES`.
+Karena `request.rate_type` yang dikirim `compare()`/API selalu literal
+`"commercial"` (bukan `"a26"` atau `"b26"`), maka kondisi `== "a26"` SELALU
+False → **`rate_type="commercial"` akan selalu resolve ke B26, tidak pernah
+A26**, kecuali pemanggil API secara eksplisit mengirim `"a26"` sebagai string
+rate_type (bukan `"commercial"`).
+
+**Ini mungkin memang disengaja** (barangkali kontrak commercial customer ini
+memang B26, A26 cuma referensi/tier lain) — saya TIDAK mengubah ini karena
+butuh konfirmasi bisnis, bukan keputusan teknis. Kalau yang dimaksud
+"commercial" itu seharusnya bisa pilih A26 ATAU B26 (bukan selalu B26),
+perlu ditambahkan field/opsi eksplisit di `RateRequest` (mis.
+`extra={"ups_tier": "a26"}`) yang dibaca `calculator.py` sebelum fallback ke
+default.
+
+
+## Bug lain yang sudah tercatat sebelumnya (dari sesi index.html)
+1. `check_package_surcharge()` FedEx crash kalau field `packages` diisi
+   (kwarg `qty` tidak dikenali).
+2. Circular import kalau `carriers/fedex/zones.py` di-import sendirian.
+
+## Update — Test suite otomatis dibangun, 3 bug lagi ditemukan & diperbaiki
+
+Saat membangun test suite (`tests/` — 31 test, cakupan FedEx Publish/
+Commercial, UPS Publish/Commercial, Comparison lintas carrier, dan API HTTP
+lewat FastAPI TestClient), test-nya sendiri menemukan bug tambahan yang
+belum pernah kejadian di pengujian manual sebelumnya (karena manual testing
+tidak pernah lewat jalur HTTP API secara sistematis):
+
+1. **`packing_type` bikin API `/api/rates/calculate` return 500.**
+   Root cause: `api/routes.py::_normalize_package()` selalu menambahkan key
+   `packing_type` (default `"box"`) ke tiap package, tapi
+   `check_package_surcharge()` tidak punya parameter itu — beda dari bug
+   `qty` sebelumnya (yang sudah saya perbaiki), ini bug BARU di field lain
+   yang sama sekali belum ke-cover fix sebelumnya.
+
+   Fix: bukan whack-a-mole per-field lagi — dibuatkan
+   `_PACKAGE_SURCHARGE_KEYS` (whitelist) + `_package_surcharge_kwargs()` di
+   `nonstandard.py`, dipakai di SEMUA 3 titik yang unpack package dict ke
+   `check_package_surcharge()`. Field API yang belum dikenal (apapun
+   namanya, termasuk yang mungkin ditambah di masa depan) otomatis di-drop
+   dengan aman, bukan bikin crash.
+
+   ⚠️ **Keterbatasan yang perlu diketahui**: `packing_type` diterima &
+   divalidasi oleh API, tapi **belum ada logic yang memetakan nilainya**
+   (mis. `"pallet"`) ke flag `non_cardboard_packaging` dkk. Untuk sekarang
+   field ini di-terima tapi diabaikan secara diam-diam. Kalau AHS-Packaging
+   perlu ke-detect otomatis dari `packing_type`, itu perlu ditambahkan
+   terpisah (bukan bug, tapi fitur yang belum ada).
+
+2. **Error "negara tidak tersedia" balas HTTP 500, seharusnya 400.**
+   Root cause: `FedExRateError`/`UPSZoneError`/`UPSRateError` semua inherit
+   dari `Exception` polos, bukan `ValueError` — padahal `routes.py` cuma
+   nangkep `ValueError` untuk dibalas 400, sisanya jatuh ke `except
+   Exception` generik → 500 (harusnya 400, ini kesalahan INPUT/data,
+   bukan bug server).
+
+   Fix: dibuatkan `backend/core/errors.py::RateEngineError` (base exception
+   bersama), ketiga exception class carrier di-update untuk inherit dari
+   sini, dan `routes.py` cukup catch `RateEngineError` SATU KALI —
+   carrier-agnostic, tidak perlu diubah lagi kalau nambah UPS/DHL baru
+   nanti (konsisten dengan prinsip carrier isolation di PRD).
+
+3. **`smoke_test.py` lama sudah tidak bisa jalan** (import modul `calculator`
+   yang tidak ada lagi di project ini, sisa dari sebelum migrasi) — diganti
+   jadi entry point tipis yang menjalankan `tests/` (`python smoke_test.py`
+   tetap berfungsi seperti sebelumnya, sekarang benar-benar jalan).
+
+## Update — Cakupan test diperluas: full-matrix sweep + surcharges (49 test)
+
+Ditambahkan 2 file test baru:
+
+1. **`test_full_matrix_sweep.py`** — beda dari test lain yang cuma spot-check
+   beberapa negara, ini iterasi **SEMUA negara × semua service × semua
+   direction × semua rate_type** (FedEx: 229 negara × 4 service × 2 arah × 2
+   rate_type; UPS: 221 negara × 4 service × 2 arah × 2 rate_type). Prinsip:
+   `RateEngineError` itu wajar (tidak semua negara punya semua service), yang
+   TIDAK boleh muncul adalah exception lain (KeyError/TypeError/dll) yang
+   nunjukin data hilang atau bug struktural. **Hasil: 0 unexpected error** di
+   seluruh matrix kedua carrier — persis pola pengujian yang nemuin bug
+   named-group UPS sebelumnya, sekarang jadi test permanen, bukan sekali
+   jalan manual.
+
+2. **`test_surcharges.py`** — sebelumnya ODA/OPA lookup & Special Handling
+   Fees (Address Correction, Saturday Pickup/Delivery, Inbound Processing
+   Fee auto-detect, ISR/DSR/ASR mutually-exclusive dgn freight) **belum ada
+   test sama sekali** meskipun base rate & zone sudah dites — sekarang
+   sudah di-cover.
+
+**Total sekarang: 49 test, semua PASS, jalan <1 detik** (`python
+smoke_test.py`). Cakupan: golden value per-negara, full-matrix sweep 2
+carrier, comparison lintas carrier, API HTTP end-to-end, dan surcharge
+ODA/OPA + Special Handling.
+
+
+## Update — 2 bug lain (dari sesi index.html) juga sudah diperbaiki
+
+1. **`check_package_surcharge()` crash saat `packages` diisi** — root cause:
+   `carriers/fedex/calculator.py` meneruskan `extra["packages"]` mentah-mentah
+   ke `_calculate_raw()`, padahal format kompak (`{"qty": N, ...}`, konvensi
+   yang sama dipakai UPS) tidak dikenal oleh `nonstandard_fees.py` versi lama
+   (mengharapkan 1 dict = 1 collie fisik, tanpa key `qty`). Fix: fungsi
+   `_expand_packages_qty()` baru di `calculator.py` yang expand tiap dict
+   ber-`qty` jadi N dict individual SEBELUM masuk `_calculate_raw()` — tidak
+   mengubah `nonstandard_fees.py` sama sekali. Sudah diverifikasi: qty=1 tidak
+   lagi crash, qty=3 menghasilkan 3 collie individual dengan CWT benar.
+2. **Circular import di `carriers/fedex/zones.py`** — root cause:
+   `rates/__init__.py` eager-import `publish`/`commercial` di top-level,
+   sehingga siapapun yang import `rates.common` (termasuk `zones.py`) memicu
+   `publish.py` mencoba import balik dari `zones.py` yang masih pertengahan
+   load. Fix: import `publish`/`commercial` dipindah jadi lazy (di dalam
+   fungsi `calculate_base()`), tidak mengubah API publik modul ini sama
+   sekali. Sudah diverifikasi: import `zones.py` langsung, import
+   `calculator.py` duluan, dan import `rates` package standalone — ketiganya
+   jalan tanpa error.
+
+## Update — Bug tanggal-efektif ditemukan & diperbaiki: Demand Surcharge FedEx
+
+Saat menambah test utk Demand Surcharge (belum pernah ada test-nya sama
+sekali), ketemu bug yang **berdampak nyata & aktif per hari ini**:
+
+**Root cause**: `compute_demand_surcharge()` di `surcharges/core.py`
+menyimpan `DEMAND_SURCHARGE_EFFECTIVE_DATE = "2026-09-21"` sebagai metadata
+di return value, tapi **tidak pernah benar-benar mengecek tanggal ini
+terhadap tanggal hari ini** — surcharge-nya dihitung terus tanpa syarat,
+kapanpun fungsi ini dipanggil.
+
+**Dampak**: per hari ini (9 September 2026 — 12 hari SEBELUM tanggal
+efektif), setiap quote FedEx Publish yang dihasilkan kalkulator ini
+over-charge Rp6.000+ (minimum per shipment) secara diam-diam, karena
+Demand Surcharge yang seharusnya belum berlaku tetap ditambahkan.
+
+**Fix**: `compute_demand_surcharge()` sekarang terima parameter
+`as_of_date` (default `None` → `datetime.date.today()`), dan mengembalikan
+`applied: False` dgn alasan jelas kalau tanggal itu masih sebelum tanggal
+efektif. Parameter ini diteruskan sampai ke `RateRequest.extra`
+(`demand_surcharge_as_of_date`) supaya bisa di-override manual utk quote yg
+memang ditujukan utk tanggal pengiriman di masa depan (setelah efektif),
+atau utk testing deterministik.
+
+**Verifikasi**: quote Singapura hari ini sekarang **Rp1.256.000** (base
+rate saja, tanpa Demand Surcharge) — sebelumnya salah **Rp1.262.000**.
+Ditambahkan test khusus (`test_fedex.py::FedExDemandSurchargeDateGatingTests`)
+yang PIN tanggal eksplisit (bukan bergantung ke tanggal hari ini) supaya
+regresi ini tidak bisa balik lagi tanpa ketahuan, dan tidak diam-diam mulai
+gagal begitu kalender lewat 21 Sep 2026.
+
+**Catatan desain**: pola tanggal-efektif seperti ini kemungkinan akan
+muncul lagi di masa depan (rate FedEx/UPS lain yang update berkala) — kalau
+ada surcharge/rate lain yang punya "efektif mulai tanggal X" di
+dokumentasinya, cek dulu apakah tanggal itu benar-benar di-enforce di kode
+atau cuma metadata seperti kasus ini.
+
+**Hasil akhir sekarang: 51 test, semua PASS.**
