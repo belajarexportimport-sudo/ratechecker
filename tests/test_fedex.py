@@ -155,6 +155,53 @@ class FedExPackagesRegressionTests(unittest.TestCase):
         self.assertEqual(r.extra["chargeable_weight"]["total_chargeable_weight_kg"], 6.0)
 
 
+class FedExPackageQtyMultiplierRegressionTests(unittest.TestCase):
+    """
+    Regresi TAMBAHAN ditemukan saat re-verifikasi audit (bukan bug yang sama
+    dgn FedExPackagesRegressionTests di atas): crash 'qty' sudah diperbaiki
+    lewat _package_surcharge_kwargs()/_expand_packages_qty(), TAPI kalau
+    fungsi nonstandard.py (summarize_packages, evaluate_packages_for_service_
+    switch, compute_shipment_chargeable_weight) dipanggil LANGSUNG dengan
+    dict yang masih membawa key 'qty' mentah (belum di-expand
+    _expand_packages_qty()), qty itu dibuang diam-diam alih-alih dipakai
+    sbg pengali -> silent under-billing (bukan crash, jadi tidak ketahuan
+    tanpa test eksplisit). Lihat _package_qty() di nonstandard.py.
+    """
+
+    def test_summarize_packages_multiplies_charge_by_qty(self):
+        from backend.carriers.fedex.surcharges import nonstandard as nf
+        packages = [{"qty": 2, "weight_kg": 30, "length_cm": 250,
+                     "width_cm": 40, "height_cm": 40, "packing_type": "box",
+                     "label": "Collie 1"}]
+        res = nf.summarize_packages(packages)
+        # 1 collie 250x40x40/30kg -> Oversize Charge (Rp1.072.000), qty=2
+        self.assertEqual(res["total_charge"], 1072000 * 2)
+        self.assertEqual(res["details"][0]["qty"], 2)
+        self.assertEqual(res["details"][0]["charge_per_unit"], 1072000)
+
+    def test_compute_shipment_chargeable_weight_multiplies_by_qty(self):
+        from backend.carriers.fedex.surcharges import nonstandard as nf
+        packages = [{"qty": 2, "weight_kg": 30, "length_cm": 250,
+                     "width_cm": 40, "height_cm": 40}]
+        cwt = nf.compute_shipment_chargeable_weight(packages)
+        # dim weight = (250*40*40)/5000 = 80kg per collie x qty 2 = 160kg
+        self.assertEqual(cwt["total_chargeable_weight_kg"], 160.0)
+        self.assertEqual(cwt["details"][0]["qty"], 2)
+
+    def test_end_to_end_via_calculator_no_double_count_with_expand_packages_qty(self):
+        # Jalur RESMI (calculator.py: _expand_packages_qty menghilangkan
+        # 'qty' sebelum sampai ke nonstandard.py) TIDAK boleh dobel-hitung
+        # cuma karena nonstandard.py sekarang juga sadar 'qty'.
+        req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=40.0,
+                           extra={"packages": [{"qty": 2, "weight_kg": 20,
+                                                 "length_cm": 245, "width_cm": 10,
+                                                 "height_cm": 10, "packing_type": "box"}]})
+        r = calculate(req)
+        self.assertEqual(r.surcharges.get("Non-Standard Shipment Fees"), 1072000 * 2)
+
+
 class FedExDemandSurchargeDateGatingTests(unittest.TestCase):
     """Regression test utk bug yang sudah diperbaiki: Demand Surcharge
     (efektif 2026-09-21) SEBELUMNYA dihitung terus tanpa cek tanggal sama

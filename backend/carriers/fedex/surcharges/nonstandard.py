@@ -325,6 +325,20 @@ def _package_surcharge_kwargs(pkg):
     return {k: v for k, v in pkg.items() if k in _PACKAGE_SURCHARGE_KEYS}
 
 
+def _package_qty(pkg):
+    """
+    FIX (regresi baru ditemukan saat verifikasi ulang audit -- 'qty' sudah
+    tidak lagi bikin crash setelah _package_surcharge_kwargs() dibuat, TAPI
+    'qty' itu sendiri diam-diam DIBUANG, tidak pernah dipakai sbg pengali.
+    Akibatnya package dgn qty=2 cuma dihitung 1x charge -> silent
+    under-billing (lebih berbahaya dari crash, karena tidak ada error yang
+    kelihatan). Helper ini yang menyediakan pengalinya -- dipakai di
+    summarize_packages(), evaluate_packages_for_service_switch(), dan
+    compute_shipment_chargeable_weight().
+    """
+    return pkg.get("qty", 1) or 1
+
+
 def summarize_packages(packages):
     """
     packages: list of dict, tiap dict = kwargs utk check_package_surcharge()
@@ -339,13 +353,18 @@ def summarize_packages(packages):
     for i, pkg in enumerate(packages, start=1):
         pkg = dict(pkg)
         pkg_label = pkg.pop("label", f"Collie {i}")
+        qty = _package_qty(pkg)
         res = check_package_surcharge(**_package_surcharge_kwargs(pkg))
         res["package_label"] = pkg_label
+        res["qty"] = qty
+        res["charge_per_unit"] = res["charge"]
+        res["charge"] = res["charge"] * qty       # FIX: qty dulu dibuang diam-diam
         details.append(res)
         total += res["charge"]
         if res["min_billable_weight_kg"]:
-            notes.append(f"{pkg_label}: kena AHS-Dimension -> minimum billable "
-                          f"weight {res['min_billable_weight_kg']}kg utk package ini "
+            qty_note = f" (x{qty})" if qty != 1 else ""
+            notes.append(f"{pkg_label}{qty_note}: kena AHS-Dimension -> minimum billable "
+                          f"weight {res['min_billable_weight_kg']}kg PER COLLIE ini "
                           f"(lihat known_limitations #1 di nonstandard_fees.py, "
                           f"BELUM otomatis diterapkan ke base rate).")
     return {"total_charge": total, "details": details, "notes": notes}
@@ -480,13 +499,16 @@ def evaluate_packages_for_service_switch(service, packages):
     new_service = "IPF" if service.upper() == "IP" else "IEF"
     forced_fee_preview = []
     for pkg, elig in zip(packages, eligibility):
+        qty = _package_qty(pkg)
         chk_kwargs = _package_surcharge_kwargs(pkg)
         chk = check_package_surcharge(**chk_kwargs)
         forced_fee_preview.append({
             "label": elig["label"],
             "reasons": elig["reasons"],
             "forced_label": chk["label"],
-            "forced_charge": chk["charge"],
+            "forced_charge": chk["charge"],               # per collie
+            "qty": qty,
+            "forced_charge_total": chk["charge"] * qty,    # FIX: total utk qty collie identik
         })
     return {
         "action": "switch",
@@ -538,6 +560,7 @@ def compute_shipment_chargeable_weight(packages,
     total = 0.0
     for i, pkg in enumerate(packages, start=1):
         label = pkg.get("label", f"Collie {i}")
+        qty = _package_qty(pkg)
         length_cm, width_cm, height_cm = pkg["length_cm"], pkg["width_cm"], pkg["height_cm"]
         actual = pkg["weight_kg"]
         dim_w = dimensional_weight_kg(length_cm, width_cm, height_cm, divisor)
@@ -547,12 +570,14 @@ def compute_shipment_chargeable_weight(packages,
         floor = chk["min_billable_weight_kg"] or 0
 
         cw = max(actual, dim_w, floor)
-        total += cw
+        total += cw * qty        # FIX: qty dulu dibuang diam-diam dari CWT total
         details.append({
             "label": label,
+            "qty": qty,
             "actual_weight_kg": actual,
             "dimensional_weight_kg": dim_w,
             "chargeable_weight_kg": cw,
+            "chargeable_weight_kg_total": cw * qty,
             "ahs_dimension_floor_applied": floor > 0 and cw == floor,
         })
     return {"total_chargeable_weight_kg": total, "details": details}
