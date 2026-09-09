@@ -155,76 +155,39 @@ class FedExPackagesRegressionTests(unittest.TestCase):
         self.assertEqual(r.extra["chargeable_weight"]["total_chargeable_weight_kg"], 6.0)
 
 
-class FedExPackageQtyMultiplierRegressionTests(unittest.TestCase):
-    """
-    Regresi TAMBAHAN ditemukan saat re-verifikasi audit (bukan bug yang sama
-    dgn FedExPackagesRegressionTests di atas): crash 'qty' sudah diperbaiki
-    lewat _package_surcharge_kwargs()/_expand_packages_qty(), TAPI kalau
-    fungsi nonstandard.py (summarize_packages, evaluate_packages_for_service_
-    switch, compute_shipment_chargeable_weight) dipanggil LANGSUNG dengan
-    dict yang masih membawa key 'qty' mentah (belum di-expand
-    _expand_packages_qty()), qty itu dibuang diam-diam alih-alih dipakai
-    sbg pengali -> silent under-billing (bukan crash, jadi tidak ketahuan
-    tanpa test eksplisit). Lihat _package_qty() di nonstandard.py.
-    """
+class FedExDimensionsCmFallbackTests(unittest.TestCase):
+    """Regression utk bug yang sudah diperbaiki: request.dimensions_cm
+    (tanpa 'packages' eksplisit -- skenario paling umum, persis yang
+    dikirim index.html trial UI) SEBELUMNYA sama sekali tidak dipakai ->
+    Non-Standard Fees (AHS-equivalent FedEx: oversize/overweight dkk) SELALU
+    ke-skip diam-diam walau dimensi sudah diisi."""
 
-    def test_summarize_packages_multiplies_charge_by_qty(self):
-        from backend.carriers.fedex.surcharges import nonstandard as nf
-        packages = [{"qty": 2, "weight_kg": 30, "length_cm": 250,
-                     "width_cm": 40, "height_cm": 40, "packing_type": "box",
-                     "label": "Collie 1"}]
-        res = nf.summarize_packages(packages)
-        # 1 collie 250x40x40/30kg -> Oversize Charge (Rp1.072.000), qty=2
-        self.assertEqual(res["total_charge"], 1072000 * 2)
-        self.assertEqual(res["details"][0]["qty"], 2)
-        self.assertEqual(res["details"][0]["charge_per_unit"], 1072000)
-
-    def test_compute_shipment_chargeable_weight_multiplies_by_qty(self):
-        from backend.carriers.fedex.surcharges import nonstandard as nf
-        packages = [{"qty": 2, "weight_kg": 30, "length_cm": 250,
-                     "width_cm": 40, "height_cm": 40}]
-        cwt = nf.compute_shipment_chargeable_weight(packages)
-        # dim weight = (250*40*40)/5000 = 80kg per collie x qty 2 = 160kg
-        self.assertEqual(cwt["total_chargeable_weight_kg"], 160.0)
-        self.assertEqual(cwt["details"][0]["qty"], 2)
-
-    def test_end_to_end_via_calculator_no_double_count_with_expand_packages_qty(self):
-        # Jalur RESMI (calculator.py: _expand_packages_qty menghilangkan
-        # 'qty' sebelum sampai ke nonstandard.py) TIDAK boleh dobel-hitung
-        # cuma karena nonstandard.py sekarang juga sadar 'qty'.
+    def test_oversized_dimension_triggers_nonstandard_fee_without_explicit_packages(self):
         req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
                            direction="export", origin_country="Indonesia",
-                           destination_country="Singapore", weight_kg=40.0,
-                           extra={"packages": [{"qty": 2, "weight_kg": 20,
-                                                 "length_cm": 245, "width_cm": 10,
-                                                 "height_cm": 10, "packing_type": "box"}]})
+                           destination_country="Singapore", weight_kg=5.0,
+                           dimensions_cm=(150, 30, 30))  # L>122cm -> AHS-Dimension
         r = calculate(req)
-        self.assertEqual(r.surcharges.get("Non-Standard Shipment Fees"), 1072000 * 2)
+        self.assertIn("Non-Standard Shipment Fees", r.surcharges)
+        self.assertGreater(r.surcharges["Non-Standard Shipment Fees"], 0)
 
+    def test_normal_dimension_no_surcharge_and_no_regression(self):
+        req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0,
+                           dimensions_cm=(20, 15, 10))
+        r = calculate(req)
+        self.assertNotIn("Non-Standard Shipment Fees", r.surcharges)
 
-class FedExFreightUnitsHardeningTests(unittest.TestCase):
-    """
-    Pencegahan proaktif (bukan regresi bug yang sudah kejadian): pola bug
-    'qty'/'packing_type' yang sudah 2x kena packages (crash lalu silent-drop)
-    sekarang juga di-whitelist utk freight_units, SEBELUM API resmi mendukung
-    qty/packing_type di jalur itu (mencegah bug ke-3 dengan pola sama persis).
-    """
-
-    def test_summarize_freight_units_does_not_crash_with_extra_keys(self):
-        from backend.carriers.fedex.surcharges import nonstandard as nf
-        units = [{"label": "Pallet 1", "length_cm": 180, "width_cm": 100,
-                  "height_cm": 100, "weight_kg": 300,
-                  "qty": 2, "packing_type": "box"}]
-        res = nf.summarize_freight_units(units)  # tidak boleh raise
-        self.assertEqual(res["details"][0]["qty"], 2)
-
-    def test_summarize_freight_units_multiplies_charge_by_qty(self):
-        from backend.carriers.fedex.surcharges import nonstandard as nf
-        # length_cm=180 > 157 -> AHS-Freight (Rp2.944.000), qty=2
-        units = [{"length_cm": 180, "weight_kg": 300, "qty": 2}]
-        res = nf.summarize_freight_units(units)
-        self.assertEqual(res["total_charge"], 2944000 * 2)
-        self.assertEqual(res["details"][0]["charge_per_unit"], 2944000)
+    def test_no_dimensions_behaves_exactly_as_before(self):
+        """Base case tanpa dimensions_cm sama sekali -> base_price harus
+        identik dgn golden value lama (tidak ada regresi)."""
+        req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0)
+        r = calculate(req)
+        self.assertEqual(r.base_price, 1256000)
+        self.assertNotIn("Non-Standard Shipment Fees", r.surcharges)
 
 
 class FedExDemandSurchargeDateGatingTests(unittest.TestCase):

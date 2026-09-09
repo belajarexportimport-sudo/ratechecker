@@ -334,6 +334,37 @@ def _expand_packages_qty(packages):
     return expanded
 
 
+def _synthesize_packages(request: RateRequest, extra: dict):
+    """
+    Kalau `extra['packages']` tidak diisi tapi `request.dimensions_cm` ADA,
+    bangun 1 package sintetis dari weight_kg + dimensions_cm supaya CWT/
+    dimensional-weight dan Non-Standard Fees tetap dicek -- BUKAN diam-diam
+    di-skip.
+
+    SEBELUM FIX INI: `request.dimensions_cm` TIDAK PERNAH dipakai sama
+    sekali di seluruh calculator.py ini -- CWT & Non-Standard Fees (AHS-
+    equivalent FedEx: oversize/overweight/non-cardboard packaging dkk) cuma
+    jalan kalau caller eksplisit isi `extra['packages']` (format list-of-
+    collie). Skenario paling umum (isi berat+dimensi 1 paket tanpa
+    breakdown per-collie -- persis yang dikirim index.html trial UI)
+    akan SELALU under-estimate. Pola bug yang sama juga ditemukan &
+    diperbaiki di UPS (lihat AUDIT_UPS_COMMERCIAL.md).
+    """
+    packages = _expand_packages_qty(extra.get("packages"))
+    if packages:
+        return packages
+    dim = request.dimensions_cm
+    if dim and len(dim) == 3 and all(dim):
+        return [{
+            "weight_kg": request.weight_kg,
+            "length_cm": dim[0],
+            "width_cm": dim[1],
+            "height_cm": dim[2],
+            "label": "Pkg #1",
+        }]
+    return None
+
+
 def calculate(request: RateRequest) -> RateResult:
     """
     Entry point utama (interface baru).
@@ -360,7 +391,7 @@ def calculate(request: RateRequest) -> RateResult:
         apply_oda_opa=extra.get("apply_oda_opa", True),
         apply_minimum=extra.get("apply_minimum", True),
         round_invoice=extra.get("round_invoice", True),
-        packages=_expand_packages_qty(extra.get("packages")),
+        packages=_synthesize_packages(request, extra),
         freight_units=extra.get("freight_units"),
         special_handling=extra.get("special_handling"),
         auto_switch_service=extra.get("auto_switch_service", True),

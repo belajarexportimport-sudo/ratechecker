@@ -261,3 +261,62 @@ dokumentasinya, cek dulu apakah tanggal itu benar-benar di-enforce di kode
 atau cuma metadata seperti kasus ini.
 
 **Hasil akhir sekarang: 51 test, semua PASS.**
+
+## Update — Bug presisi dimensi ditemukan & diperbaiki (FedEx & UPS)
+
+Pertanyaan user: *"dimensi blm bener ya? blm jd acuan mana yg terbesar
+antara actual weight dgn dimensi? lalu beberapa ketentuan surcharge yg
+menuntut presisi mis LPS, OMX, AHS, WWEF, dll"* — ternyata BENAR, ada gap
+nyata, di KEDUA carrier:
+
+**UPS** (`carriers/ups/calculator.py`): mode tanpa `packages` eksplisit
+(cuma `weight_kg` + `dimensions_cm` — persis yang dikirim `index.html`
+trial UI) SUDAH benar hitung `max(actual, dim_weight)` untuk chargeable
+weight, TAPI **AHS/LPS/OMX sama sekali tidak dicek** di mode ini — walau
+data dimensinya sudah ada di tangan. Sudah ada catatan
+`"AHS/LPS/OMX tidak dicek (bisa under-estimate)"` di kode, tapi tetap bug
+karena datanya SUDAH tersedia, cuma tidak dipakai.
+
+**FedEx** (`carriers/fedex/calculator.py`): lebih parah — `request.
+dimensions_cm` **tidak pernah dipakai sama sekali di seluruh file**. CWT
+(dimensional weight) dan Non-Standard Fees (AHS-equivalent FedEx) HANYA
+jalan kalau caller eksplisit isi `extra['packages']` (format list-of-
+collie) — mode "isi berat+dimensi tanpa breakdown per-collie" (skenario
+paling umum) selalu diam-diam skip pengecekan ini.
+
+**Fix** (pola sama di kedua carrier): kalau `packages` tidak diisi tapi
+`dimensions_cm` ADA, sintesis 1 package dari `weight_kg` + `dimensions_cm`
+dan alirkan lewat fungsi evaluasi per-package yang SAMA dengan jalur
+`packages` eksplisit (`evaluate_package()` di UPS,
+`compute_shipment_chargeable_weight()`/`summarize_packages()` di FedEx) —
+bukan jalur pintas terpisah yang punya logic sendiri.
+
+**Verifikasi**:
+- UPS: paket 150×30×30cm, 5kg → sekarang benar kena **AHS Rp280.016**
+  (sebelumnya Rp0, silent under-estimate).
+- UPS: dim weight lebih besar dari actual (1kg aktual, dim 12kg) → chargeable
+  weight yang dipakai benar 12kg (max terpilih dgn benar).
+- FedEx: paket sama (150×30×30cm, 5kg) → sekarang benar kena
+  **Non-Standard Shipment Fees Rp431.000** (sebelumnya Rp0).
+- Kasus tanpa dimensi sama sekali: hasil PERSIS SAMA dgn sebelum fix (tidak
+  ada regresi ke behavior lama).
+
+**Test baru**: `test_fedex.py::FedExDimensionsCmFallbackTests`,
+`test_ups.py::UPSDimensionsCmFallbackTests` (7 test) — memastikan bug ini
+tidak bisa balik tanpa ketahuan.
+
+**Yang PERLU diketahui — ini bukan "selesai 100%"**:
+- FedEx punya *known limitation* yang SUDAH ada sebelum audit ini (bukan
+  baru): AHS-Dimension floor (minimum billable weight 18kg per package) BELUM
+  otomatis diterapkan ke base rate CWT — cuma muncul sebagai catatan di
+  `notes`. Ini beda dari bug yang baru diperbaiki, dan belum saya sentuh.
+- `packing_type` (non-standard packaging seperti pallet/drum) masih perlu
+  diisi manual per-package kalau memang bukan box/envelope biasa — mode
+  sintesis-dari-dimensions_cm SELALU asumsikan `packing_type="box"` (index.
+  html trial UI belum punya field utk ini).
+- ~~Belum ada test spesifik LPS/OMX~~ **Sudah ditambahkan**:
+  `UPSPackageSurchargeUnitTests` (6 test unit langsung ke `evaluate_package()`)
+  mencakup LPS, OMX (3 trigger berbeda: length>274, weight>70, total_dim>400),
+  package normal (tanpa surcharge), dan WWEF (waive total + floor 71kg).
+
+**Hasil akhir sekarang: 64 test, semua PASS.**

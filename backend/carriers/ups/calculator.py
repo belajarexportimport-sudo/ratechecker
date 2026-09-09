@@ -93,44 +93,61 @@ def calculate(request: RateRequest) -> RateResult:
 
     # ── 2. Per-package evaluation ──────────────────────────────────────────
     packages = extra.get("packages") or []
+
+    if not packages and (request.weight_kg or request.dimensions_cm):
+        # Tidak ada 'packages' detail eksplisit -> bangun 1 package sintetis
+        # dari request.weight_kg + request.dimensions_cm (kalau ada), supaya
+        # tetap lewat evaluate_package() yang SAMA dengan jalur 'packages'
+        # eksplisit -- BUKAN jalur pintas terpisah yang skip AHS/LPS/OMX.
+        #
+        # SEBELUM FIX INI: mode tanpa 'packages' cuma hitung
+        # max(actual, dim_weight) utk chargeable weight, tapi AHS/LPS/OMX
+        # SAMA SEKALI TIDAK DICEK walau dimensions_cm sudah diisi -- padahal
+        # datanya sudah ada di tangan, cuma tidak dipakai. Ini bug presisi
+        # nyata utk kasus umum: user isi berat+dimensi tanpa breakdown
+        # per-collie (persis skenario index.html trial UI).
+        dim = request.dimensions_cm or (0, 0, 0)
+        packing_type = extra.get("packing_type", "box")
+        packages = [{
+            "weight_kg": request.weight_kg,
+            "length_cm": dim[0] if len(dim) > 0 else 0,
+            "width_cm": dim[1] if len(dim) > 1 else 0,
+            "height_cm": dim[2] if len(dim) > 2 else 0,
+            "packing_type": packing_type,
+            "label": "Pkg #1",
+        }]
+
     pkg_results: list[PackageResult] = []
     total_chargeable = 0.0
     total_pkg_surcharge = 0.0
     pkg_surcharge_components = []
     notes = []
 
-    if packages:
-        for i, pkg in enumerate(packages):
-            qty = pkg.get("qty", 1)
-            pr = evaluate_package(
-                weight_kg    = pkg.get("weight_kg", request.weight_kg),
-                length_cm    = pkg.get("length_cm", 0),
-                width_cm     = pkg.get("width_cm", 0),
-                height_cm    = pkg.get("height_cm", 0),
-                packing_type = pkg.get("packing_type", "box"),
-                label        = pkg.get("label", f"Pkg #{i+1}"),
-                is_wwef      = is_wwef,
-            )
-            pkg_results.append(pr)
-            total_chargeable += pr.chargeable_weight * qty
-            if pr.surcharge_cost > 0:
-                total_pkg_surcharge += pr.surcharge_cost * qty
-                pkg_surcharge_components.append({
-                    "label": f"{pr.label} (x{qty}): {pr.surcharge_type} ({', '.join(pr.reasons)})",
-                    "amount": pr.surcharge_cost * qty,
-                })
-    else:
-        # Tanpa packages detail: pakai weight_kg langsung
-        dim = request.dimensions_cm
-        dim_weight = 0.0
-        if dim and len(dim) == 3:
-            from backend.carriers.ups.rules import DIM_DIVISOR
-            dim_weight = (dim[0] * dim[1] * dim[2]) / DIM_DIVISOR
-        total_chargeable = max(request.weight_kg, dim_weight)
-        notes.append(
-            "packages tidak diisi -> DIM weight dihitung dari dimensions_cm jika ada, "
-            "AHS/LPS/OMX tidak dicek (bisa under-estimate)."
+    for i, pkg in enumerate(packages):
+        qty = pkg.get("qty", 1)
+        pr = evaluate_package(
+            weight_kg    = pkg.get("weight_kg", request.weight_kg),
+            length_cm    = pkg.get("length_cm", 0),
+            width_cm     = pkg.get("width_cm", 0),
+            height_cm    = pkg.get("height_cm", 0),
+            packing_type = pkg.get("packing_type", "box"),
+            label        = pkg.get("label", f"Pkg #{i+1}"),
+            is_wwef      = is_wwef,
         )
+        pkg_results.append(pr)
+        total_chargeable += pr.chargeable_weight * qty
+        if pr.surcharge_cost > 0:
+            total_pkg_surcharge += pr.surcharge_cost * qty
+            pkg_surcharge_components.append({
+                "label": f"{pr.label} (x{qty}): {pr.surcharge_type} ({', '.join(pr.reasons)})",
+                "amount": pr.surcharge_cost * qty,
+            })
+
+    if not pkg_results:
+        # Betul-betul tidak ada info apapun (bukan cuma tanpa 'packages',
+        # tapi weight_kg juga 0/None) -- fallback minimal spy tidak crash.
+        total_chargeable = request.weight_kg or 0.0
+        notes.append("weight_kg/dimensions_cm tidak diisi -> AHS/LPS/OMX tidak dicek.")
 
     # ── 3. Weight rounding ─────────────────────────────────────────────────
     # Flat (<=20kg): round ke 0.5 kg; Per-kg / WWEF: round ke atas 1kg

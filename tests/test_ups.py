@@ -102,5 +102,97 @@ class UPSCommercialNamedGroupTests(unittest.TestCase):
         self.assertEqual(r.base_price, 550200)  # B26 'japan, korea, taiwan' @2kg
 
 
+class UPSDimensionsCmFallbackTests(unittest.TestCase):
+    """Regression utk bug yang sudah diperbaiki: request.dimensions_cm tanpa
+    'packages' eksplisit (skenario paling umum -- persis yang dikirim
+    index.html trial UI) SEBELUMNYA cuma dipakai utk hitung DIM weight, tapi
+    AHS/LPS/OMX SAMA SEKALI TIDAK DICEK walau datanya sudah ada."""
+
+    def test_oversized_dimension_triggers_ahs_without_explicit_packages(self):
+        req = RateRequest(carrier="ups", rate_type="publish", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=5.0,
+                           dimensions_cm=(150, 30, 30))  # L>122cm -> AHS
+        r = calculate(req)
+        ahs_keys = [k for k in r.surcharges if "AHS" in k]
+        self.assertTrue(ahs_keys, f"AHS tidak terdeteksi, surcharges: {r.surcharges}")
+
+    def test_large_dimension_picks_dim_weight_over_actual(self):
+        """max(actual, dim) -- dim weight (12kg) > actual (1kg) -> chargeable
+        weight yg dipakai harus dim weight, bukan actual."""
+        req = RateRequest(carrier="ups", rate_type="publish", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=1.0,
+                           dimensions_cm=(50, 40, 30))
+        r = calculate(req)
+        self.assertEqual(r.extra["pkg_details"][0]["chargeable_kg"], 12.0)
+        self.assertEqual(r.extra["pkg_details"][0]["dim_kg"], 12.0)
+
+    def test_small_dimension_picks_actual_over_dim_weight(self):
+        req = RateRequest(carrier="ups", rate_type="publish", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=5.0,
+                           dimensions_cm=(20, 15, 10))
+        r = calculate(req)
+        self.assertEqual(r.extra["pkg_details"][0]["chargeable_kg"], 5.0)
+
+    def test_no_dimensions_behaves_exactly_as_before(self):
+        req = RateRequest(carrier="ups", rate_type="publish", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0)
+        r = calculate(req)
+        self.assertEqual(r.base_price, 1789024)
+        ahs_keys = [k for k in r.surcharges if "AHS" in k]
+        self.assertEqual(ahs_keys, [])
+
+
+class UPSPackageSurchargeUnitTests(unittest.TestCase):
+    """Unit test langsung ke evaluate_package() utk AHS/LPS/OMX/WWEF --
+    lebih presisi dari test lewat calculate() krn bisa cek reasons & floor
+    weight per kondisi spesifik satu-satu."""
+
+    @classmethod
+    def setUpClass(cls):
+        from backend.carriers.ups.rules import evaluate_package
+        cls.evaluate_package = staticmethod(evaluate_package)
+
+    def test_lps_triggered_by_girth_over_300_under_omx_threshold(self):
+        """total_dim (L+girth) 301-400cm, L<=274cm, weight<=70kg -> LPS
+        (bukan OMX)."""
+        pr = self.evaluate_package(weight_kg=30, length_cm=150, width_cm=60, height_cm=60)
+        # girth = 2*60+2*60=240; total_dim=150+240=390 (LPS range: >300, <=400 & L<=274)
+        self.assertEqual(pr.surcharge_type, "LPS")
+        self.assertGreaterEqual(pr.chargeable_weight, 40.0)  # LPS floor 40kg
+
+    def test_omx_triggered_by_length_over_274(self):
+        pr = self.evaluate_package(weight_kg=30, length_cm=280, width_cm=40, height_cm=40)
+        self.assertEqual(pr.surcharge_type, "OMX")
+
+    def test_omx_triggered_by_weight_over_70(self):
+        pr = self.evaluate_package(weight_kg=75, length_cm=50, width_cm=40, height_cm=40)
+        self.assertEqual(pr.surcharge_type, "OMX")
+
+    def test_omx_triggered_by_total_dim_over_400(self):
+        pr = self.evaluate_package(weight_kg=30, length_cm=200, width_cm=60, height_cm=60)
+        # girth=240, total_dim=440 -> OMX (total_dim>400)
+        self.assertEqual(pr.surcharge_type, "OMX")
+
+    def test_normal_package_no_surcharge(self):
+        pr = self.evaluate_package(weight_kg=5, length_cm=30, width_cm=20, height_cm=15)
+        self.assertEqual(pr.surcharge_type, "")
+        self.assertEqual(pr.surcharge_cost, 0)
+
+    def test_wwef_waives_ahs_lps_omx_but_floors_71kg(self):
+        """WWEF: AHS/LPS/OMX diwaive TOTAL, tapi minimum 71kg per package
+        tetap berlaku. Dimensi dipilih kecil (dim_weight < 71kg) supaya
+        yang diuji murni floor 71kg-nya, bukan kebetulan dim_weight lebih
+        besar dari itu."""
+        pr = self.evaluate_package(weight_kg=30, length_cm=280, width_cm=20, height_cm=20,
+                                    is_wwef=True)
+        self.assertEqual(pr.surcharge_type, "")
+        self.assertEqual(pr.surcharge_cost, 0)
+        self.assertEqual(pr.chargeable_weight, 71.0)
+
+
 if __name__ == "__main__":
     unittest.main()
