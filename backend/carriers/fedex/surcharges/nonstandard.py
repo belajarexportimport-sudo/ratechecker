@@ -370,6 +370,32 @@ def summarize_packages(packages):
     return {"total_charge": total, "details": details, "notes": notes}
 
 
+_FREIGHT_SURCHARGE_KEYS = {
+    "length_cm", "weight_kg", "width_cm", "height_cm", "non_stackable",
+}
+
+
+def _freight_surcharge_kwargs(unit):
+    """
+    PENCEGAHAN PROAKTIF (bukan bug aktif SAAT INI, tapi pola yang sudah 2x
+    kejadian di packages: 'qty' lalu 'packing_type' -- lihat
+    _package_surcharge_kwargs() di atas). backend/api/routes.py BELUM
+    menormalisasi 'freight_units' seperti 'packages' (belum ada 'qty'/
+    'packing_type' dari API utk freight), tapi begitu itu ditambahkan
+    (langkah alami berikutnya, sama persis dgn yang terjadi pada packages),
+    summarize_freight_units() akan crash dgn cara yang IDENTIK kalau tidak
+    di-whitelist dari sekarang. Sengaja diterapkan sekarang, sebelum jadi
+    bug ke-3.
+    """
+    return {k: v for k, v in unit.items() if k in _FREIGHT_SURCHARGE_KEYS}
+
+
+def _freight_qty(unit):
+    """Sama seperti _package_qty() -- siap dipakai begitu 'qty' utk freight
+    units resmi didukung, tanpa perlu ubah caller lagi."""
+    return unit.get("qty", 1) or 1
+
+
 def summarize_freight_units(units):
     """
     units: list of dict, tiap dict = kwargs utk check_freight_surcharge()
@@ -382,12 +408,17 @@ def summarize_freight_units(units):
     for i, unit in enumerate(units, start=1):
         unit = dict(unit)
         unit_label = unit.pop("label", f"Freight Unit {i}")
-        res = check_freight_surcharge(**unit)
+        qty = _freight_qty(unit)
+        res = check_freight_surcharge(**_freight_surcharge_kwargs(unit))
         res["unit_label"] = unit_label
+        res["qty"] = qty
+        res["charge_per_unit"] = res["charge"]
+        res["charge"] = res["charge"] * qty
         details.append(res)
         total += res["charge"]
+        qty_note = f" (x{qty})" if qty != 1 else ""
         for n in res["notes"]:
-            notes.append(f"{unit_label}: {n}")
+            notes.append(f"{unit_label}{qty_note}: {n}")
     return {"total_charge": total, "details": details, "notes": notes}
 
 

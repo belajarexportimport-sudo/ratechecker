@@ -71,14 +71,46 @@ Saya verifikasi dengan 2 cara:
 
 ---
 
+## Lanjutan — full-matrix sweep & pencegahan proaktif bug ke-3
+
+Setelah 3 prioritas di atas, saya jalankan `tests/test_full_matrix_sweep.py`
+(iterasi SEMUA negara x service x direction x rate_type, 8 test) — **semua
+lulus**, tidak ada exception tak terduga di luar sweep dasar (sweep ini tidak
+menyentuh jalur `packages`/`freight_units` karena memang tidak diisi).
+
+Karena komentar di kode eksplisit bilang pola bug `qty`/`packing_type` ini
+"sudah 2x kejadian", saya scan seluruh codebase untuk pola `**dict` splat
+yang sama rentannya:
+
+- **`summarize_freight_units()` (FedEx)** — ternyata masih memakai pola LAMA
+  yang sama (`check_freight_surcharge(**unit)` tanpa whitelist), TIDAK
+  crash SAAT INI cuma karena `backend/api/routes.py` belum menormalisasi
+  `freight_units` dengan `qty`/`packing_type` (beda dengan `packages` yang
+  sudah). Begitu itu ditambahkan (langkah alami berikutnya, persis proses
+  yang sama dengan `packages`), ini akan jadi **bug ke-3** dengan pola
+  identik. **Saya keraskan sekarang secara proaktif** (whitelist
+  `_freight_surcharge_kwargs()` + `qty` multiplier), sebelum jadi bug aktif.
+- **UPS (`evaluate_package()`)** — dicek, **kebal secara desain**: field
+  diambil satu-satu lewat `pkg.get(...)`, bukan `**pkg` splat, jadi key
+  ekstra apa pun otomatis diabaikan dengan aman. Tidak perlu perubahan.
+- **`compute_special_handling()` (FedEx)** — dicek, risikonya beda kelas:
+  dict `special_handling` dikontrol developer langsung (bukan hasil
+  auto-normalize skema API bersama seperti `packages`/`freight_units`),
+  jadi tidak termasuk pola bug yang sama. Tidak diubah.
+
 ## File yang saya ubah
-- `backend/carriers/fedex/surcharges/nonstandard.py` — fix qty multiplier
-  (Prioritas 2, bagian regresi baru)
+- `backend/carriers/fedex/surcharges/nonstandard.py`:
+  - Fix qty multiplier di `summarize_packages()`, `compute_shipment_chargeable_weight()`,
+    `evaluate_packages_for_service_switch()` (Prioritas 2, regresi baru)
+  - Whitelist + qty multiplier proaktif di `summarize_freight_units()`
+    (pencegahan bug ke-3, belum aktif tapi laten)
 - `tests/test_fedex.py` — tambah `FedExPackageQtyMultiplierRegressionTests`
+  (3 test) + `FedExFreightUnitsHardeningTests` (2 test)
 
 ## Cara verifikasi ulang
 ```bash
 cd "calculator rate comparison"
 pip install -r requirements.txt pytest
-python3 -m pytest tests/ -q   # harus: 54 passed
+python3 -m pytest tests/ -q                        # harus: 56 passed
+python3 -m pytest tests/test_full_matrix_sweep.py -v  # harus: 8 passed
 ```

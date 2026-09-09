@@ -202,6 +202,31 @@ class FedExPackageQtyMultiplierRegressionTests(unittest.TestCase):
         self.assertEqual(r.surcharges.get("Non-Standard Shipment Fees"), 1072000 * 2)
 
 
+class FedExFreightUnitsHardeningTests(unittest.TestCase):
+    """
+    Pencegahan proaktif (bukan regresi bug yang sudah kejadian): pola bug
+    'qty'/'packing_type' yang sudah 2x kena packages (crash lalu silent-drop)
+    sekarang juga di-whitelist utk freight_units, SEBELUM API resmi mendukung
+    qty/packing_type di jalur itu (mencegah bug ke-3 dengan pola sama persis).
+    """
+
+    def test_summarize_freight_units_does_not_crash_with_extra_keys(self):
+        from backend.carriers.fedex.surcharges import nonstandard as nf
+        units = [{"label": "Pallet 1", "length_cm": 180, "width_cm": 100,
+                  "height_cm": 100, "weight_kg": 300,
+                  "qty": 2, "packing_type": "box"}]
+        res = nf.summarize_freight_units(units)  # tidak boleh raise
+        self.assertEqual(res["details"][0]["qty"], 2)
+
+    def test_summarize_freight_units_multiplies_charge_by_qty(self):
+        from backend.carriers.fedex.surcharges import nonstandard as nf
+        # length_cm=180 > 157 -> AHS-Freight (Rp2.944.000), qty=2
+        units = [{"length_cm": 180, "weight_kg": 300, "qty": 2}]
+        res = nf.summarize_freight_units(units)
+        self.assertEqual(res["total_charge"], 2944000 * 2)
+        self.assertEqual(res["details"][0]["charge_per_unit"], 2944000)
+
+
 class FedExDemandSurchargeDateGatingTests(unittest.TestCase):
     """Regression test utk bug yang sudah diperbaiki: Demand Surcharge
     (efektif 2026-09-21) SEBELUMNYA dihitung terus tanpa cek tanggal sama
