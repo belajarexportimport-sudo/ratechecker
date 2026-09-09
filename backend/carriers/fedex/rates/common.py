@@ -18,8 +18,10 @@ calculator.py/app.py - TIDAK ada perubahan behavior, cuma reorganisasi file.
 
 from bisect import bisect_right
 
+from backend.core.errors import RateEngineError
 
-class FedExRateError(Exception):
+
+class FedExRateError(RateEngineError):
     pass
 
 

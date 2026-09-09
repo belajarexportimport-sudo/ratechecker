@@ -296,6 +296,35 @@ def check_freight_surcharge(length_cm, weight_kg, width_cm=None, height_cm=None,
     }
 
 
+_PACKAGE_SURCHARGE_KEYS = {
+    "length_cm", "width_cm", "height_cm", "weight_kg",
+    "non_cardboard_packaging", "round_or_cylindrical",
+    "banded_or_has_wheels_handles_straps", "could_entangle_or_damage",
+}
+
+
+def _package_surcharge_kwargs(pkg):
+    """
+    Filter 1 dict package jadi kwargs yang VALID utk check_package_surcharge()
+    saja -- buang 'label' dan field API lain yang belum/tidak relevan di
+    fungsi ini (mis. 'qty', 'packing_type' dari skema RateRequest.extra
+    lewat API -- lihat backend/api/routes.py::_normalize_package()).
+
+    Kenapa whitelist (bukan blacklist per-field): supaya caller/skema API
+    boleh nambah field baru di masa depan tanpa bikin fungsi ini crash lagi
+    (pola bug yang sudah 2x kejadian: 'qty' lalu 'packing_type').
+
+    CATATAN: 'packing_type' SENGAJA belum di-mapping ke flag
+    non_cardboard_packaging/dll di sini -- itu flag manual yang belum ada
+    logic otomatis dari string packing_type, jadi utk sekarang cuma
+    di-drop diam-diam (bukan bug, tapi keterbatasan yang perlu tahu: kalau
+    user isi packing_type='pallet' misalnya, itu TIDAK otomatis menaikkan
+    non_cardboard_packaging=True -- perlu isi extra kalau mau AHS-Packaging
+    ke-detect).
+    """
+    return {k: v for k, v in pkg.items() if k in _PACKAGE_SURCHARGE_KEYS}
+
+
 def summarize_packages(packages):
     """
     packages: list of dict, tiap dict = kwargs utk check_package_surcharge()
@@ -310,7 +339,7 @@ def summarize_packages(packages):
     for i, pkg in enumerate(packages, start=1):
         pkg = dict(pkg)
         pkg_label = pkg.pop("label", f"Collie {i}")
-        res = check_package_surcharge(**pkg)
+        res = check_package_surcharge(**_package_surcharge_kwargs(pkg))
         res["package_label"] = pkg_label
         details.append(res)
         total += res["charge"]
@@ -451,7 +480,7 @@ def evaluate_packages_for_service_switch(service, packages):
     new_service = "IPF" if service.upper() == "IP" else "IEF"
     forced_fee_preview = []
     for pkg, elig in zip(packages, eligibility):
-        chk_kwargs = {k: v for k, v in pkg.items() if k != "label"}
+        chk_kwargs = _package_surcharge_kwargs(pkg)
         chk = check_package_surcharge(**chk_kwargs)
         forced_fee_preview.append({
             "label": elig["label"],
@@ -513,7 +542,7 @@ def compute_shipment_chargeable_weight(packages,
         actual = pkg["weight_kg"]
         dim_w = dimensional_weight_kg(length_cm, width_cm, height_cm, divisor)
 
-        chk_kwargs = {k: v for k, v in pkg.items() if k != "label"}
+        chk_kwargs = _package_surcharge_kwargs(pkg)
         chk = check_package_surcharge(**chk_kwargs)
         floor = chk["min_billable_weight_kg"] or 0
 

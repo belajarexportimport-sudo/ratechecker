@@ -14,6 +14,7 @@ import dataclasses
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.core.schemas import RateRequest, RateResult
+from backend.core.errors import RateEngineError
 from backend.pricing.router import calculate as calculate_rate
 from backend.comparison.compare import compare, ComparisonResult
 
@@ -151,7 +152,7 @@ async def calculate_endpoint(request: Request):
     try:
         result = calculate_rate(core_req)
         return dataclasses.asdict(result)
-    except ValueError as e:
+    except (ValueError, RateEngineError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

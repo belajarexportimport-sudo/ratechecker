@@ -37,9 +37,10 @@ from backend.carriers.ups.rules import (
     AHS_COST, LPS_COST, OMX_COST,
 )
 from backend.carriers.ups.rates.publish import lookup_rate, RATES
+from backend.core.errors import RateEngineError
 
 
-class UPSRateError(Exception):
+class UPSRateError(RateEngineError):
     pass
 
 

@@ -21,7 +21,10 @@ key "cn southern" yang terpisah.
 """
 
 
-class UPSZoneError(Exception):
+from backend.core.errors import RateEngineError
+
+
+class UPSZoneError(RateEngineError):
     pass
 
 

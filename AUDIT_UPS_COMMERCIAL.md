@@ -128,12 +128,78 @@ default.
    (kwarg `qty` tidak dikenali).
 2. Circular import kalau `carriers/fedex/zones.py` di-import sendirian.
 
-## Ringkasan prioritas
-1. **Prioritas tinggi**: fix named-group override UPS commercial (A26/B26) —
-   ini bikin salah HARGA ke customer untuk negara-negara volume tinggi
-   (China, Jepang, US, HK, negara-negara Eropa besar).
-2. **Prioritas sedang**: fix bug `packages` FedEx (nonstandard.py).
-3. **Prioritas rendah**: rapikan urutan import `carriers/fedex/zones.py`.
+## Update — Test suite otomatis dibangun, 3 bug lagi ditemukan & diperbaiki
+
+Saat membangun test suite (`tests/` — 31 test, cakupan FedEx Publish/
+Commercial, UPS Publish/Commercial, Comparison lintas carrier, dan API HTTP
+lewat FastAPI TestClient), test-nya sendiri menemukan bug tambahan yang
+belum pernah kejadian di pengujian manual sebelumnya (karena manual testing
+tidak pernah lewat jalur HTTP API secara sistematis):
+
+1. **`packing_type` bikin API `/api/rates/calculate` return 500.**
+   Root cause: `api/routes.py::_normalize_package()` selalu menambahkan key
+   `packing_type` (default `"box"`) ke tiap package, tapi
+   `check_package_surcharge()` tidak punya parameter itu — beda dari bug
+   `qty` sebelumnya (yang sudah saya perbaiki), ini bug BARU di field lain
+   yang sama sekali belum ke-cover fix sebelumnya.
+
+   Fix: bukan whack-a-mole per-field lagi — dibuatkan
+   `_PACKAGE_SURCHARGE_KEYS` (whitelist) + `_package_surcharge_kwargs()` di
+   `nonstandard.py`, dipakai di SEMUA 3 titik yang unpack package dict ke
+   `check_package_surcharge()`. Field API yang belum dikenal (apapun
+   namanya, termasuk yang mungkin ditambah di masa depan) otomatis di-drop
+   dengan aman, bukan bikin crash.
+
+   ⚠️ **Keterbatasan yang perlu diketahui**: `packing_type` diterima &
+   divalidasi oleh API, tapi **belum ada logic yang memetakan nilainya**
+   (mis. `"pallet"`) ke flag `non_cardboard_packaging` dkk. Untuk sekarang
+   field ini di-terima tapi diabaikan secara diam-diam. Kalau AHS-Packaging
+   perlu ke-detect otomatis dari `packing_type`, itu perlu ditambahkan
+   terpisah (bukan bug, tapi fitur yang belum ada).
+
+2. **Error "negara tidak tersedia" balas HTTP 500, seharusnya 400.**
+   Root cause: `FedExRateError`/`UPSZoneError`/`UPSRateError` semua inherit
+   dari `Exception` polos, bukan `ValueError` — padahal `routes.py` cuma
+   nangkep `ValueError` untuk dibalas 400, sisanya jatuh ke `except
+   Exception` generik → 500 (harusnya 400, ini kesalahan INPUT/data,
+   bukan bug server).
+
+   Fix: dibuatkan `backend/core/errors.py::RateEngineError` (base exception
+   bersama), ketiga exception class carrier di-update untuk inherit dari
+   sini, dan `routes.py` cukup catch `RateEngineError` SATU KALI —
+   carrier-agnostic, tidak perlu diubah lagi kalau nambah UPS/DHL baru
+   nanti (konsisten dengan prinsip carrier isolation di PRD).
+
+3. **`smoke_test.py` lama sudah tidak bisa jalan** (import modul `calculator`
+   yang tidak ada lagi di project ini, sisa dari sebelum migrasi) — diganti
+   jadi entry point tipis yang menjalankan `tests/` (`python smoke_test.py`
+   tetap berfungsi seperti sebelumnya, sekarang benar-benar jalan).
+
+## Update — Cakupan test diperluas: full-matrix sweep + surcharges (49 test)
+
+Ditambahkan 2 file test baru:
+
+1. **`test_full_matrix_sweep.py`** — beda dari test lain yang cuma spot-check
+   beberapa negara, ini iterasi **SEMUA negara × semua service × semua
+   direction × semua rate_type** (FedEx: 229 negara × 4 service × 2 arah × 2
+   rate_type; UPS: 221 negara × 4 service × 2 arah × 2 rate_type). Prinsip:
+   `RateEngineError` itu wajar (tidak semua negara punya semua service), yang
+   TIDAK boleh muncul adalah exception lain (KeyError/TypeError/dll) yang
+   nunjukin data hilang atau bug struktural. **Hasil: 0 unexpected error** di
+   seluruh matrix kedua carrier — persis pola pengujian yang nemuin bug
+   named-group UPS sebelumnya, sekarang jadi test permanen, bukan sekali
+   jalan manual.
+
+2. **`test_surcharges.py`** — sebelumnya ODA/OPA lookup & Special Handling
+   Fees (Address Correction, Saturday Pickup/Delivery, Inbound Processing
+   Fee auto-detect, ISR/DSR/ASR mutually-exclusive dgn freight) **belum ada
+   test sama sekali** meskipun base rate & zone sudah dites — sekarang
+   sudah di-cover.
+
+**Total sekarang: 49 test, semua PASS, jalan <1 detik** (`python
+smoke_test.py`). Cakupan: golden value per-negara, full-matrix sweep 2
+carrier, comparison lintas carrier, API HTTP end-to-end, dan surcharge
+ODA/OPA + Special Handling.
 
 
 ## Update — 2 bug lain (dari sesi index.html) juga sudah diperbaiki
