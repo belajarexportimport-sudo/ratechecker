@@ -115,12 +115,29 @@ A26**, kecuali pemanggil API secara eksplisit mengirim `"a26"` sebagai string
 rate_type (bukan `"commercial"`).
 
 **Ini mungkin memang disengaja** (barangkali kontrak commercial customer ini
-memang B26, A26 cuma referensi/tier lain) — saya TIDAK mengubah ini karena
-butuh konfirmasi bisnis, bukan keputusan teknis. Kalau yang dimaksud
-"commercial" itu seharusnya bisa pilih A26 ATAU B26 (bukan selalu B26),
-perlu ditambahkan field/opsi eksplisit di `RateRequest` (mis.
-`extra={"ups_tier": "a26"}`) yang dibaca `calculator.py` sebelum fallback ke
-default.
+memang B26, A26 cuma referensi/tier lain) — saya TIDAK mengubah default ini
+karena butuh konfirmasi bisnis, bukan keputusan teknis.
+
+**Update — infrastruktur override SUDAH ditambahkan** (tanpa mengubah default,
+tanpa menunggu keputusan bisnis dulu): `calculator.py` sekarang baca
+`extra={"ups_tier": "a26"}` (atau `"b26"`) SEBELUM fallback ke default B26.
+- Default TETAP B26 kalau `ups_tier` tidak diisi — **0 regresi**, diverifikasi
+  dgn test lama (`test_end_to_end_japan_commercial_via_calculate`, golden
+  value 550200) yang masih PASS tanpa perubahan.
+- `ups_tier` invalid (bukan "a26"/"b26") -> `UPSRateError` eksplisit, bukan
+  diam-diam fallback ke salah satu.
+- `ups_tier` diisi tapi `rate_type` bukan commercial (mis. "publish") ->
+  diabaikan total, tidak mempengaruhi jalur publish sama sekali.
+- Note transparansi ditambahkan ke `RateResult.notes` tiap kali jalur
+  commercial dipakai — SELALU bilang tier mana yang dipakai (default B26,
+  atau override eksplisit), supaya tidak ada lagi kasus "user tidak sadar
+  dapat B26 padahal maunya A26" secara diam-diam.
+- **Yang MASIH perlu keputusan bisnis**: apakah default "commercial" TANPA
+  `ups_tier` seharusnya tetap B26, atau perlu diubah/di-reject (wajibkan
+  pemanggil selalu eksplisit). Itu di luar kewenangan teknis — sekarang
+  pemanggil (API/UI) tinggal kirim `extra.ups_tier` begitu keputusannya ada,
+  tanpa perlu development lagi.
+- Test baru: `tests/test_ups.py::UPSTierOverrideTests` (5 test).
 
 
 ## Bug lain yang sudah tercatat sebelumnya (dari sesi index.html)

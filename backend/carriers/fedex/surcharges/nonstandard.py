@@ -38,17 +38,18 @@ Aturan kombinasi (PENTING, dari PDF bagian Miscellaneous Information):
      ke FedEx CS & ganti logikanya di sini.
 
 known_limitations (BACA sebelum pakai untuk keputusan bisnis):
-1. AHS - Dimension & Unauthorized Package Charge punya "18kg minimum
-   billable weight" PER PACKAGE (berlaku juga utk Oversize kalau paket
-   itu JUGA memenuhi kriteria AHS-Dimension). Ini mempengaruhi BILLED
-   WEIGHT paket itu sendiri (bisa menaikkan biaya dasar/base rate),
-   BUKAN cuma nominal surcharge non-standard-nya. Modul ini HANYA
-   memberi tahu lewat field 'min_billable_weight_kg' -> BELUM otomatis
-   diterapkan ke rates.py/calculator.py (yang saat ini bekerja di level
-   TOTAL shipment weight, bukan per-package). Kalau shipment-nya
-   single-piece dan actual weight-nya sudah >= 18kg, ini tidak berpengaruh;
-   kalau multi-piece atau actual weight < 18kg, HARUS dicek & disesuaikan
-   manual.
+1. ~~AHS-Dimension floor (18kg minimum billable weight per package) BELUM
+   otomatis diterapkan~~ -- **SUDAH DIPERBAIKI** (lihat AUDIT_UPS_COMMERCIAL.md,
+   bagian "Update — Bug presisi dimensi"). `compute_shipment_chargeable_weight()`
+   di bawah SUDAH menerapkan floor ini per-package (`cw = max(actual, dim_w,
+   floor)`), dan `calculator.py` memakai hasilnya sebagai `weight_kg` utk
+   `calculate_base()` -> floor SUDAH masuk ke base rate, bukan cuma catatan.
+   Diverifikasi ulang (bukan cuma baca kode): package 130x20x20cm/2kg (kena
+   AHS-Dimension, actual < 18kg) -> `billed_weight_kg` hasil `_calculate_raw()`
+   = **18.0kg**, persis floor-nya. Catatan lama di `summarize_packages()` yang
+   bilang "BELUM otomatis diterapkan ke base rate" SUDAH DIKOREKSI di kode
+   -- kalau masih ketemu teks itu di summary lama, itu berarti belum sinkron
+   dgn versi ini.
 2. AHS - Packaging pakai flag boolean manual (belum ada cara otomatis
    mendeteksi bentuk kemasan dari data) -> user yang isi.
 3. Dimensional/volumetric weight (Length x Width x Height / 5000) TIDAK
@@ -346,8 +347,8 @@ def summarize_packages(packages):
         if res["min_billable_weight_kg"]:
             notes.append(f"{pkg_label}: kena AHS-Dimension -> minimum billable "
                           f"weight {res['min_billable_weight_kg']}kg utk package ini "
-                          f"(lihat known_limitations #1 di nonstandard_fees.py, "
-                          f"BELUM otomatis diterapkan ke base rate).")
+                          f"(SUDAH otomatis diterapkan ke Chargeable Weight/base rate "
+                          f"lewat compute_shipment_chargeable_weight(), lihat CWT note).")
     return {"total_charge": total, "details": details, "notes": notes}
 
 

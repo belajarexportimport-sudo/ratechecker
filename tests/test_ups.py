@@ -16,6 +16,7 @@ from backend.core.schemas import RateRequest
 from backend.pricing.router import calculate
 from backend.carriers.ups.zones import ZONE_INDEX
 from backend.carriers.ups.rates.commercial import lookup_rate, A26_RATES, _get_group_key
+from backend.carriers.ups.calculator import UPSRateError
 
 
 class UPSPublishTests(unittest.TestCase):
@@ -100,6 +101,59 @@ class UPSCommercialNamedGroupTests(unittest.TestCase):
                            destination_country="Japan", weight_kg=2.0)
         r = calculate(req)
         self.assertEqual(r.base_price, 550200)  # B26 'japan, korea, taiwan' @2kg
+
+
+class UPSTierOverrideTests(unittest.TestCase):
+    """Regresi utk penambahan extra['ups_tier'] -- lihat AUDIT_UPS_COMMERCIAL.md
+    'Temuan tambahan (BELUM diperbaiki, butuh keputusan bisnis)'. Fix ini
+    BUKAN mengubah default (masih B26, lihat test di atas), cuma menambah
+    cara eksplisit memilih A26 tanpa perlu ganti rate_type jadi string
+    'a26' non-standard di RateRequest."""
+
+    def test_default_still_resolves_to_b26_no_regression(self):
+        """Tanpa extra['ups_tier'] sama sekali -> behavior IDENTIK spt
+        sebelum perubahan ini (B26)."""
+        req = RateRequest(carrier="ups", rate_type="commercial", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Japan", weight_kg=2.0)
+        r = calculate(req)
+        self.assertEqual(r.base_price, 550200)  # B26
+
+    def test_explicit_ups_tier_a26_overrides_default(self):
+        req = RateRequest(carrier="ups", rate_type="commercial", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Japan", weight_kg=2.0,
+                           extra={"ups_tier": "a26"})
+        r = calculate(req)
+        self.assertEqual(r.base_price, 629400)  # A26 named-group 'japan, korea, taiwan'
+        self.assertTrue(any("A26" in n and "eksplisit" in n for n in r.notes))
+
+    def test_explicit_ups_tier_b26_matches_default(self):
+        req = RateRequest(carrier="ups", rate_type="commercial", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Japan", weight_kg=2.0,
+                           extra={"ups_tier": "b26"})
+        r = calculate(req)
+        self.assertEqual(r.base_price, 550200)
+
+    def test_invalid_ups_tier_raises_clear_error(self):
+        req = RateRequest(carrier="ups", rate_type="commercial", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Japan", weight_kg=2.0,
+                           extra={"ups_tier": "c26"})
+        with self.assertRaises(UPSRateError):
+            calculate(req)
+
+    def test_ups_tier_ignored_for_publish_rate_type(self):
+        """ups_tier cuma relevan utk commercial -- kalau rate_type='publish',
+        override ini harus diabaikan tanpa error (bukan cuma kebetulan tidak
+        dipakai, tapi memang tidak boleh mempengaruhi jalur publish)."""
+        req = RateRequest(carrier="ups", rate_type="publish", service="saver",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0,
+                           extra={"ups_tier": "a26"})
+        r = calculate(req)
+        self.assertEqual(r.base_price, 1789024)  # sama dgn UPSPublishTests, tidak berubah
 
 
 class UPSDimensionsCmFallbackTests(unittest.TestCase):

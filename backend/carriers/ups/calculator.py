@@ -161,7 +161,26 @@ def calculate(request: RateRequest) -> RateResult:
 
     # ── 4. Rate lookup ─────────────────────────────────────────────────────
     rate_module = _get_rate_module(request.rate_type)
-    lookup_kwargs = dict(rate_type=request.rate_type)
+    # CATATAN (lihat AUDIT_UPS_COMMERCIAL.md, "Temuan tambahan BELUM
+    # diperbaiki"): request.rate_type dari caller/API untuk jalur commercial
+    # SELALU literal "commercial" (bukan "a26"/"b26"), dan
+    # commercial.lookup_rate() resolve rate_type=="a26" -> A26_RATES, SELAIN
+    # itu (termasuk "commercial") -> B26_RATES. Efeknya "commercial" SELALU
+    # jatuh ke B26, TIDAK PERNAH A26, kecuali pemanggil eksplisit override.
+    # Belum tahu itu keputusan bisnis yang disengaja atau bukan -> BUKAN
+    # diubah diam-diam di sini. Yang ditambahkan cuma cara EKSPLISIT memilih
+    # A26 (extra={"ups_tier": "a26"}), default TIDAK BERUBAH (tetap B26 kalau
+    # tidak diisi) supaya tidak ada regresi ke behavior lama yang sudah
+    # divalidasi (49 test golden value B26).
+    effective_rate_type = request.rate_type
+    ups_tier = (extra.get("ups_tier") or "").strip().lower()
+    if rate_module.__name__.endswith(".commercial") and ups_tier:
+        if ups_tier not in ("a26", "b26"):
+            raise UPSRateError(
+                f"extra['ups_tier'] harus 'a26' atau 'b26', dapat '{ups_tier}'."
+            )
+        effective_rate_type = ups_tier
+    lookup_kwargs = dict(rate_type=effective_rate_type)
     if rate_module.__name__.endswith(".commercial"):
         # A26/B26 punya named-group override per negara (lihat commercial.py) —
         # publish.lookup_rate tidak menerima kwarg ini, jadi hanya dikirim
@@ -178,6 +197,15 @@ def calculate(request: RateRequest) -> RateResult:
         total_chargeable, 
         **lookup_kwargs,
     )
+    if rate_module.__name__.endswith(".commercial"):
+        if ups_tier:
+            notes.append(f"Commercial rate: tier {effective_rate_type.upper()} dipakai "
+                         f"(eksplisit dari extra['ups_tier']).")
+        else:
+            notes.append("Commercial rate: rate_type='commercial' default resolve ke "
+                         "tier B26 (BUKAN A26) -- lihat AUDIT_UPS_COMMERCIAL.md kalau "
+                         "kontrak customer ini seharusnya A26, isi "
+                         "extra={'ups_tier': 'a26'} utk override eksplisit.")
 
     if rate is None:
         raise UPSRateError(

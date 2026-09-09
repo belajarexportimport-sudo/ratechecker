@@ -190,6 +190,47 @@ class FedExDimensionsCmFallbackTests(unittest.TestCase):
         self.assertNotIn("Non-Standard Shipment Fees", r.surcharges)
 
 
+class FedExAHSDimensionFloorAppliedTests(unittest.TestCase):
+    """Regresi utk temuan: known_limitations #1 (docstring lama
+    nonstandard.py) bilang floor 18kg AHS-Dimension 'BELUM otomatis
+    diterapkan ke base rate' -- ternyata SUDAH (lewat
+    compute_shipment_chargeable_weight() yg dipanggil calculator.py),
+    cuma teks note & docstring-nya yg belum di-update (menyesatkan
+    pembaca hasil kuotasi). Test ini mengunci PERILAKU-nya (bukan cuma
+    teks) supaya floor tidak diam-diam lepas lagi di masa depan."""
+
+    def test_single_light_package_ahs_dimension_floor_raises_billed_weight(self):
+        """Package 130x20x20cm/2kg: longest=130cm>121cm -> AHS-Dimension,
+        actual weight (2kg) & dim weight (130*20*20/5000=10.4kg) keduanya
+        < 18kg -> billed_weight_kg HARUS naik jadi tepat 18kg (floor), bukan
+        max(2, 10.4)=10.4kg."""
+        req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0,
+                           extra={"packages": [{"weight_kg": 2.0, "length_cm": 130,
+                                                 "width_cm": 20, "height_cm": 20}]})
+        r = calculate(req)
+        self.assertEqual(r.extra["chargeable_weight"]["total_chargeable_weight_kg"], 18.0)
+        detail = r.extra["chargeable_weight"]["details"][0]
+        self.assertTrue(detail["ahs_dimension_floor_applied"])
+        # base rate ikut dihitung dari billed weight yg SUDAH kena floor,
+        # bukan dari actual/dim weight yg lebih kecil.
+        self.assertGreater(r.base_price, 0)
+
+    def test_note_no_longer_claims_floor_not_applied(self):
+        """Note per-package tidak boleh lagi bilang 'BELUM otomatis
+        diterapkan ke base rate' -- itu klaim yg sudah tidak benar sejak
+        compute_shipment_chargeable_weight() menerapkan floor."""
+        req = RateRequest(carrier="fedex", rate_type="publish", service="IP",
+                           direction="export", origin_country="Indonesia",
+                           destination_country="Singapore", weight_kg=2.0,
+                           extra={"packages": [{"weight_kg": 2.0, "length_cm": 130,
+                                                 "width_cm": 20, "height_cm": 20}]})
+        r = calculate(req)
+        combined_notes = " ".join(r.notes)
+        self.assertNotIn("BELUM otomatis diterapkan ke base rate", combined_notes)
+
+
 class FedExDemandSurchargeDateGatingTests(unittest.TestCase):
     """Regression test utk bug yang sudah diperbaiki: Demand Surcharge
     (efektif 2026-09-21) SEBELUMNYA dihitung terus tanpa cek tanggal sama
