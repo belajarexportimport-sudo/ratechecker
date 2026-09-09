@@ -257,5 +257,88 @@ class FedExDemandSurchargeDateGatingTests(unittest.TestCase):
         self.assertGreater(r.total, r.base_price)
 
 
+class FedExCommercialMarkupTests(unittest.TestCase):
+    """Upsell/markup FedEx commercial (extra['markup_pct']) -- KEBALIKAN
+    diskon, menaikkan dari acuan Commercial Rate Card. Khusus rate_type
+    commercial FedEx (bukan discount_pct, dan tidak berlaku ke publish).
+    Golden base_price commercial IP export Singapore 2kg = 324676 (lihat
+    FedExCommercialTests.test_ip_export_singapore)."""
+
+    def _base_req(self, **overrides):
+        defaults = dict(carrier="fedex", rate_type="commercial", service="IP",
+                         direction="export", origin_country="Indonesia",
+                         destination_country="Singapore", weight_kg=2.0)
+        defaults.update(overrides)
+        return RateRequest(**defaults)
+
+    def test_markup_15pct_adds_positive_surcharge_not_discount(self):
+        req = self._base_req(extra={"markup_pct": 15})
+        r = calculate(req)
+        self.assertEqual(r.base_price, 324676)  # base rate TIDAK berubah
+        markup_amount = 324676 * 0.15
+        self.assertEqual(r.surcharges.get("Markup Commercial (15%)"), markup_amount)
+        self.assertGreater(r.total, r.base_price)  # naik, bukan turun
+
+    def test_markup_20pct(self):
+        req = self._base_req(extra={"markup_pct": 20})
+        r = calculate(req)
+        self.assertIn("Markup Commercial (20%)", r.surcharges)
+        self.assertEqual(r.surcharges["Markup Commercial (20%)"], 324676 * 0.20)
+
+    def test_markup_25pct(self):
+        req = self._base_req(extra={"markup_pct": 25})
+        r = calculate(req)
+        self.assertIn("Markup Commercial (25%)", r.surcharges)
+        self.assertEqual(r.surcharges["Markup Commercial (25%)"], 324676 * 0.25)
+
+    def test_markup_30pct(self):
+        req = self._base_req(extra={"markup_pct": 30})
+        r = calculate(req)
+        self.assertIn("Markup Commercial (30%)", r.surcharges)
+        self.assertEqual(r.surcharges["Markup Commercial (30%)"], 324676 * 0.30)
+
+    def test_markup_extra_detail_in_result(self):
+        req = self._base_req(extra={"markup_pct": 20})
+        r = calculate(req)
+        self.assertEqual(r.extra["markup"]["pct"], 20)
+        self.assertAlmostEqual(r.extra["markup"]["amount"], 324676 * 0.20, delta=1)
+
+    def test_markup_note_states_it_is_increase_not_discount(self):
+        req = self._base_req(extra={"markup_pct": 15})
+        r = calculate(req)
+        self.assertTrue(any("Markup" in n and "bukan diskon" in n for n in r.notes))
+
+    def test_invalid_markup_pct_value_raises_clear_error(self):
+        """Cuma preset 15/20/25/30 yang didukung -- nilai lain harus error
+        jelas, bukan diam-diam dipakai."""
+        req = self._base_req(extra={"markup_pct": 10})
+        with self.assertRaises(ValueError):
+            calculate(req)
+
+    def test_markup_rejected_for_publish_rate_type(self):
+        """markup_pct KHUSUS commercial -- FedEx publish tidak punya konsep
+        upsell dari commercial rate card."""
+        req = self._base_req(rate_type="publish", extra={"markup_pct": 20})
+        with self.assertRaises(ValueError):
+            calculate(req)
+
+    def test_no_markup_pct_behaves_exactly_as_before(self):
+        """Tanpa markup_pct -- behavior IDENTIK spt sebelum fitur ini ada."""
+        req = self._base_req()
+        r = calculate(req)
+        self.assertEqual(r.base_price, 324676)
+        self.assertNotIn("markup", "".join(r.surcharges.keys()).lower())
+        self.assertIsNone(r.extra["markup"])
+
+    def test_markup_can_combine_with_discount_independently(self):
+        """markup_pct & discount_pct dua lever bisnis independen -- boleh
+        dipakai bersamaan (masing2 dihitung dari base rate yang sama,
+        bukan saling mempengaruhi)."""
+        req = self._base_req(discount_pct=10, extra={"markup_pct": 20})
+        r = calculate(req)
+        self.assertEqual(r.discount, 324676 * 0.10)
+        self.assertEqual(r.surcharges["Markup Commercial (20%)"], 324676 * 0.20)
+
+
 if __name__ == "__main__":
     unittest.main()

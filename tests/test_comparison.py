@@ -16,19 +16,36 @@ class ComparisonTests(unittest.TestCase):
         defaults.update(overrides)
         return RateRequest(**defaults)
 
-    def test_four_way_comparison_all_succeed_for_common_country(self):
-        """Singapura punya rate lengkap di ke-4 kombinasi -> tidak boleh ada
-        yang masuk daftar 'unavailable'."""
+    def test_five_result_comparison_all_succeed_for_common_country(self):
+        """Singapura punya rate lengkap di semua kombinasi -> tidak boleh ada
+        yang masuk daftar 'unavailable'. 5 hasil (bukan 4): combo
+        ("ups","commercial") generik di-expand jadi 2 baris (A26 & B26)
+        -- lihat AUDIT_UPS_COMMERCIAL.md, B26 tidak lagi default diam-diam."""
         req = self._base_request()
         result = compare(req, combinations=[("fedex", "publish"), ("fedex", "commercial"),
                                              ("ups", "publish"), ("ups", "commercial")])
-        self.assertEqual(len(result.results), 4)
+        self.assertEqual(len(result.results), 5)
         self.assertEqual(result.unavailable, [])
+        rate_types = sorted(r.rate_type for r in result.results)
+        self.assertEqual(rate_types, ["commercial", "commercial_a26",
+                                       "commercial_b26", "promotional", "publish"])
+
+    def test_ups_commercial_with_explicit_tier_does_not_expand(self):
+        """Kalau tier UPS commercial sudah eksplisit (extra['ups_tier']),
+        combo TIDAK di-expand -- cuma 1 baris hasil utk combo itu."""
+        req = self._base_request()
+        result = compare(req, combinations=[
+            ("ups", "commercial", {"ups_tier": "a26"}),
+        ])
+        self.assertEqual(len(result.results), 1)
+        self.assertEqual(result.unavailable, [])
+        self.assertEqual(result.results[0].rate_type, "commercial")
 
     def test_cheapest_is_actually_the_minimum_total(self):
         req = self._base_request()
         result = compare(req, combinations=[("fedex", "publish"), ("fedex", "commercial"),
                                              ("ups", "publish"), ("ups", "commercial")])
+        self.assertEqual(len(result.results), 5)  # ups/commercial expand jadi A26+B26
         totals = [r.total for r in result.results]
         self.assertEqual(result.cheapest.total, min(totals))
 
@@ -52,7 +69,7 @@ class ComparisonTests(unittest.TestCase):
         )
         result = compare(req, combinations=[("fedex", "publish"), ("fedex", "commercial"),
                                              ("ups", "publish"), ("ups", "commercial")])
-        self.assertEqual(len(result.results), 4)
+        self.assertEqual(len(result.results), 5)  # ups/commercial expand jadi A26+B26
         self.assertEqual(result.unavailable, [])
 
 

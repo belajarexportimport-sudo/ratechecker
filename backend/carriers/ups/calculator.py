@@ -44,6 +44,34 @@ class UPSRateError(RateEngineError):
     pass
 
 
+def calculate_commercial_tiers(request: RateRequest) -> dict:
+    """
+    Hitung A26 & B26 SEKALIGUS untuk satu request UPS commercial.
+
+    Dipakai saat caller (UI perbandingan, endpoint yang butuh tampilkan
+    kedua opsi) perlu MENAMPILKAN A26 & B26 berdampingan -- bukan diam-diam
+    memilih satu sbg "default" (lihat AUDIT_UPS_COMMERCIAL.md; B26 dulu
+    default diam-diam, sekarang tidak lagi -- lihat calculate()).
+
+    Mengabaikan request.rate_type/extra['ups_tier'] apapun isinya -- selalu
+    hitung dua-duanya. Return {"a26": RateResult, "b26": RateResult}.
+    Kalau salah satu tier tidak tersedia utk kombinasi ini (mis. negara tidak
+    ada rate commercial sama sekali), UPSRateError dari tier itu akan
+    di-raise apa adanya (caller yang perlu partial-result silakan tangkap
+    per key dgn try/except sendiri, atau pakai compare() yang sudah
+    menangani unavailable secara graceful).
+    """
+    import copy
+    results = {}
+    for tier in ("a26", "b26"):
+        req = copy.copy(request)
+        req.rate_type = tier
+        req.extra = dict(request.extra or {})
+        req.extra.pop("ups_tier", None)
+        results[tier] = calculate(req)
+    return results
+
+
 def _get_rate_module(rate_type: str):
     """Return rate module sesuai rate_type."""
     rt = rate_type.lower()
@@ -161,27 +189,44 @@ def calculate(request: RateRequest) -> RateResult:
 
     # ── 4. Rate lookup ─────────────────────────────────────────────────────
     rate_module = _get_rate_module(request.rate_type)
-    # CATATAN (lihat AUDIT_UPS_COMMERCIAL.md, "Temuan tambahan BELUM
-    # diperbaiki"): request.rate_type dari caller/API untuk jalur commercial
-    # SELALU literal "commercial" (bukan "a26"/"b26"), dan
-    # commercial.lookup_rate() resolve rate_type=="a26" -> A26_RATES, SELAIN
-    # itu (termasuk "commercial") -> B26_RATES. Efeknya "commercial" SELALU
-    # jatuh ke B26, TIDAK PERNAH A26, kecuali pemanggil eksplisit override.
-    # Belum tahu itu keputusan bisnis yang disengaja atau bukan -> BUKAN
-    # diubah diam-diam di sini. Yang ditambahkan cuma cara EKSPLISIT memilih
-    # A26 (extra={"ups_tier": "a26"}), default TIDAK BERUBAH (tetap B26 kalau
-    # tidak diisi) supaya tidak ada regresi ke behavior lama yang sudah
-    # divalidasi (49 test golden value B26).
+    is_commercial_module = rate_module.__name__.endswith(".commercial")
+    # KEPUTUSAN BISNIS (lihat AUDIT_UPS_COMMERCIAL.md): B26 TIDAK LAGI jadi
+    # default diam-diam untuk rate_type="commercial" generik. Tier HARUS
+    # eksplisit -- baik lewat request.rate_type="a26"/"b26" langsung, maupun
+    # lewat extra={"ups_tier": "a26"/"b26"} saat rate_type="commercial".
+    # Kalau caller kirim "commercial" tanpa salah satu dari itu, ini SENGAJA
+    # error (bukan fallback diam-diam ke B26 spt sebelumnya) -- supaya A26
+    # tidak pernah "hilang" di belakang default. Untuk caller yang memang
+    # perlu tampilkan KEDUA tier sekaligus (mis. UI perbandingan), pakai
+    # calculate_commercial_tiers() di bawah, bukan calculate() satu tier.
     effective_rate_type = request.rate_type
     ups_tier = (extra.get("ups_tier") or "").strip().lower()
-    if rate_module.__name__.endswith(".commercial") and ups_tier:
-        if ups_tier not in ("a26", "b26"):
+    if is_commercial_module:
+        rt_lower = (request.rate_type or "").strip().lower()
+        if rt_lower in ("a26", "b26"):
+            # Tier eksplisit langsung dari rate_type -- tidak butuh ups_tier.
+            effective_rate_type = rt_lower
+            if ups_tier and ups_tier != rt_lower:
+                raise UPSRateError(
+                    f"rate_type='{rt_lower}' bentrok dengan extra['ups_tier']='{ups_tier}'. "
+                    f"Pilih salah satu saja."
+                )
+        elif ups_tier:
+            if ups_tier not in ("a26", "b26"):
+                raise UPSRateError(
+                    f"extra['ups_tier'] harus 'a26' atau 'b26', dapat '{ups_tier}'."
+                )
+            effective_rate_type = ups_tier
+        else:
             raise UPSRateError(
-                f"extra['ups_tier'] harus 'a26' atau 'b26', dapat '{ups_tier}'."
+                "rate_type='commercial' UPS butuh tier eksplisit -- kirim "
+                "rate_type='a26' atau 'b26', atau extra={'ups_tier': 'a26'/'b26'}. "
+                "B26 TIDAK LAGI jadi default diam-diam (lihat AUDIT_UPS_COMMERCIAL.md). "
+                "Kalau perlu tampilkan A26 & B26 sekaligus, pakai "
+                "calculate_commercial_tiers()."
             )
-        effective_rate_type = ups_tier
     lookup_kwargs = dict(rate_type=effective_rate_type)
-    if rate_module.__name__.endswith(".commercial"):
+    if is_commercial_module:
         # A26/B26 punya named-group override per negara (lihat commercial.py) —
         # publish.lookup_rate tidak menerima kwarg ini, jadi hanya dikirim
         # kalau rate_module memang commercial.
@@ -197,15 +242,8 @@ def calculate(request: RateRequest) -> RateResult:
         total_chargeable, 
         **lookup_kwargs,
     )
-    if rate_module.__name__.endswith(".commercial"):
-        if ups_tier:
-            notes.append(f"Commercial rate: tier {effective_rate_type.upper()} dipakai "
-                         f"(eksplisit dari extra['ups_tier']).")
-        else:
-            notes.append("Commercial rate: rate_type='commercial' default resolve ke "
-                         "tier B26 (BUKAN A26) -- lihat AUDIT_UPS_COMMERCIAL.md kalau "
-                         "kontrak customer ini seharusnya A26, isi "
-                         "extra={'ups_tier': 'a26'} utk override eksplisit.")
+    if is_commercial_module:
+        notes.append(f"Commercial rate: tier {effective_rate_type.upper()} dipakai.")
 
     if rate is None:
         raise UPSRateError(

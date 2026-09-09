@@ -51,6 +51,7 @@ def _calculate_raw(
     auto_switch_service=True,
     apply_dimensional_weight=True,
     discount_pct=None,
+    markup_pct=None,
     rate_type="publish",
     demand_surcharge_as_of_date=None,
 ):
@@ -63,6 +64,13 @@ def _calculate_raw(
         Demand Surcharge sudah efektif (2026-09-21) -> default None berarti
         pakai tanggal hari ini. Isi manual kalau mau quote utk tanggal
         pengiriman tertentu di masa depan.
+    markup_pct : upsell/markup dari acuan Commercial Rate Card FedEx --
+        KEBALIKAN dari discount_pct (menaikkan, bukan mengurangi). Preset
+        yang didukung: 15, 20, 25, atau 30 (persen). Hanya berlaku untuk
+        rate_type="commercial" -- FedEx publish TIDAK punya konsep upsell
+        ini (beda dgn UPS A26/B26 yang memang 2 rate card commercial
+        terpisah; FedEx cuma satu rate card commercial, upsell ini murni
+        markup niaga di atasnya, bukan tier rate card lain).
     """
     service = service.upper()
     is_freight = service in ("IPF", "IEF")
@@ -158,6 +166,33 @@ def _calculate_raw(
         notes.append(
             f"Diskon {discount_pct}% dari Base Rate (IDR {base['price']:,.0f}) "
             f"= -IDR {discount_amount:,.0f}. Tidak berlaku ke surcharge."
+        )
+
+    # ---- Markup/Upsell Commercial (dari base rate saja, KEBALIKAN diskon) ----
+    _MARKUP_PRESETS = (15, 20, 25, 30)
+    markup_detail = None
+    if markup_pct:
+        if (rate_type or "publish").lower() != "commercial":
+            raise ValueError(
+                f"markup_pct hanya berlaku untuk rate_type='commercial' FedEx "
+                f"(dapat rate_type='{rate_type}'). Base rate publish tidak "
+                f"punya konsep upsell dari commercial rate card."
+            )
+        if markup_pct not in _MARKUP_PRESETS:
+            raise ValueError(
+                f"markup_pct FedEx commercial harus salah satu dari "
+                f"{_MARKUP_PRESETS} (persen), dapat {markup_pct!r}."
+            )
+        markup_amount = base["price"] * (markup_pct / 100.0)
+        components.append({
+            "label": f"Markup Commercial ({markup_pct}%)",
+            "amount": markup_amount,
+        })
+        markup_detail = {"pct": markup_pct, "amount": markup_amount}
+        notes.append(
+            f"Markup/Upsell {markup_pct}% dari acuan Commercial Rate Card "
+            f"(IDR {base['price']:,.0f}) = +IDR {markup_amount:,.0f}. "
+            f"Ini KENAIKAN dari rate card, bukan diskon. Tidak berlaku ke surcharge."
         )
 
     # ---- ODA / OPA ----
@@ -300,6 +335,7 @@ def _calculate_raw(
         "service_switch": switch_info,
         "chargeable_weight": cwt_detail,
         "discount": discount_detail,
+        "markup": markup_detail,
         "fuel_surcharge": fuel_detail,
         "notes": notes,
         "currency": "IDR",
@@ -397,6 +433,7 @@ def calculate(request: RateRequest) -> RateResult:
         auto_switch_service=extra.get("auto_switch_service", True),
         apply_dimensional_weight=extra.get("apply_dimensional_weight", True),
         discount_pct=request.discount_pct,
+        markup_pct=extra.get("markup_pct"),
         rate_type=request.rate_type,
     )
 
@@ -439,5 +476,6 @@ def calculate(request: RateRequest) -> RateResult:
             "subtotal_invoice": raw["subtotal_invoice"],
             "chargeable_weight": raw["chargeable_weight"],
             "service_switch": raw["service_switch"],
+            "markup": raw["markup"],
         },
     )

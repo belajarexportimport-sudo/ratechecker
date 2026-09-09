@@ -15,6 +15,13 @@ from typing import Optional
 from backend.core.schemas import RateRequest, RateResult
 from backend.pricing.router import calculate, CARRIER_REGISTRY
 
+# UPS commercial (lihat AUDIT_UPS_COMMERCIAL.md): B26 tidak lagi default
+# diam-diam. Kalau caller minta combo ("ups", "commercial") TANPA tier
+# eksplisit (rate_type literal "a26"/"b26", atau extra["ups_tier"]), compare()
+# meng-expand combo itu jadi 2 baris hasil (A26 & B26) supaya keduanya SELALU
+# muncul berdampingan -- bukan salah satu "menang" diam-diam sbg default.
+_UPS_COMMERCIAL_TIERS = ("a26", "b26")
+
 
 @dataclass
 class ComparisonResult:
@@ -36,8 +43,14 @@ def compare(
     base_request : RateRequest
         Request dasar berisi info shipment (negara, berat, dll).
         Field `carrier` dan `rate_type` akan di-override per kombinasi.
-    combinations : list of (carrier, rate_type)
+    combinations : list of (carrier, rate_type) atau (carrier, rate_type, extra)
         Contoh: [("fedex", "publish"), ("fedex", "commercial")]
+        Elemen ke-3 (dict) opsional berisi override untuk RateRequest.extra,
+        mis. ("ups", "commercial", {"ups_tier": "a26"}) untuk memilih tier
+        eksplisit. Kalau combo UPS commercial TIDAK menyertakan tier eksplisit
+        (baik lewat elemen ke-3 maupun rate_type="a26"/"b26" langsung),
+        combo itu di-expand otomatis jadi 2 baris hasil (A26 & B26) -- lihat
+        AUDIT_UPS_COMMERCIAL.md, B26 tidak lagi default diam-diam.
         Default: semua rate_type untuk semua carrier yang tersedia di CARRIER_REGISTRY.
 
     Returns
@@ -59,38 +72,64 @@ def compare(
     base_carrier = base_request.carrier.lower()
     base_service  = base_request.service
 
-    for carrier, rate_type in combinations:
-        import copy
-        from backend.comparison.service_mapping import map_service
+    import copy
+    from backend.comparison.service_mapping import map_service
+
+    def _build_request(carrier, rate_type, extra_override):
         req = copy.copy(base_request)
         req.carrier = carrier
         req.rate_type = rate_type
+        if extra_override:
+            req.extra = dict(base_request.extra or {})
+            req.extra.update(extra_override)
 
-        # Resolve service jika cross-carrier
         if carrier.lower() != base_carrier:
             mapped = map_service(base_carrier, carrier, base_service)
             if mapped is None:
-                unavailable.append({
-                    "carrier":   carrier,
-                    "rate_type": rate_type,
-                    "reason":    (
-                        f"Tidak ada service mapping dari {base_carrier.upper()} "
-                        f"'{base_service}' ke {carrier.upper()}. "
-                        f"Update backend/comparison/service_mapping.py."
-                    ),
-                })
-                continue
+                return None, (
+                    f"Tidak ada service mapping dari {base_carrier.upper()} "
+                    f"'{base_service}' ke {carrier.upper()}. "
+                    f"Update backend/comparison/service_mapping.py."
+                )
             req.service = mapped
+        return req, None
 
+    def _run(carrier, rate_type, extra_override=None, label=None):
+        """Hitung 1 combo, append ke results/unavailable. `label` (opsional)
+        dipakai utk override rate_type yang ditampilkan di RateResult, supaya
+        combo yang di-expand (A26 vs B26) tetap bisa dibedakan pemanggil."""
+        req, err = _build_request(carrier, rate_type, extra_override)
+        if err:
+            unavailable.append({"carrier": carrier, "rate_type": label or rate_type, "reason": err})
+            return
         try:
             result = calculate(req)
+            if label:
+                result.rate_type = label
             results.append(result)
         except Exception as e:
             unavailable.append({
                 "carrier":   carrier,
-                "rate_type": rate_type,
+                "rate_type": label or rate_type,
                 "reason":    str(e),
             })
+
+    for combo in combinations:
+        carrier, rate_type = combo[0], combo[1]
+        combo_extra = combo[2] if len(combo) > 2 else None
+
+        is_generic_ups_commercial = (
+            carrier.lower() == "ups"
+            and rate_type.lower() == "commercial"
+            and not (combo_extra and combo_extra.get("ups_tier"))
+        )
+        if is_generic_ups_commercial:
+            # Tidak ada tier eksplisit -> tampilkan A26 & B26 berdampingan,
+            # bukan salah satu jadi default diam-diam.
+            for tier in _UPS_COMMERCIAL_TIERS:
+                _run(carrier, tier, combo_extra, label=f"commercial_{tier}")
+        else:
+            _run(carrier, rate_type, combo_extra)
 
     # Cari yang termurah
     cheapest = min(results, key=lambda r: r.total) if results else None

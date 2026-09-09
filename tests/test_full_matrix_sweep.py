@@ -105,13 +105,42 @@ class UPSFullMatrixSweepTests(unittest.TestCase):
         self.assertGreater(s, 400)
 
     def test_commercial_export_no_unexpected_errors(self):
+        """rate_type='commercial' generik (tanpa tier eksplisit) TIDAK LAGI
+        default diam-diam ke B26 (lihat AUDIT_UPS_COMMERCIAL.md) -- sekarang
+        SELALU UPSRateError (RateEngineError, jadi 'expected'), bukan bug.
+        Cakupan real jalur commercial dites lewat rate_type='a26'/'b26'
+        eksplisit di bawah."""
         s, e, u = _sweep("ups", "commercial", "export", self.countries,
+                          self.SERVICES, self.WEIGHT)
+        self.assertEqual(u, [])
+        self.assertEqual(s, 0)
+
+    def test_commercial_import_no_unexpected_errors(self):
+        s, e, u = _sweep("ups", "commercial", "import", self.countries,
+                          self.SERVICES, self.WEIGHT)
+        self.assertEqual(u, [])
+        self.assertEqual(s, 0)
+
+    def test_commercial_a26_export_no_unexpected_errors(self):
+        s, e, u = _sweep("ups", "a26", "export", self.countries,
                           self.SERVICES, self.WEIGHT)
         self.assertEqual(u, [])
         self.assertGreater(s, 500)
 
-    def test_commercial_import_no_unexpected_errors(self):
-        s, e, u = _sweep("ups", "commercial", "import", self.countries,
+    def test_commercial_a26_import_no_unexpected_errors(self):
+        s, e, u = _sweep("ups", "a26", "import", self.countries,
+                          self.SERVICES, self.WEIGHT)
+        self.assertEqual(u, [])
+        self.assertGreater(s, 400)
+
+    def test_commercial_b26_export_no_unexpected_errors(self):
+        s, e, u = _sweep("ups", "b26", "export", self.countries,
+                          self.SERVICES, self.WEIGHT)
+        self.assertEqual(u, [])
+        self.assertGreater(s, 500)
+
+    def test_commercial_b26_import_no_unexpected_errors(self):
+        s, e, u = _sweep("ups", "b26", "import", self.countries,
                           self.SERVICES, self.WEIGHT)
         self.assertEqual(u, [])
         self.assertGreater(s, 400)
