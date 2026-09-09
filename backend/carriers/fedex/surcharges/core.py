@@ -13,13 +13,16 @@ Fuel surcharge & Demand surcharge SENGAJA tidak dihardcode sebagai konstanta:
 
 CATATAN PENTING soal ODA/OPA (baca sebelum pakai):
 - Tier didapat dari lookup di oda_opa.py (database ~67.600 kode pos/kota, 114 negara).
-- Tahap ini MENYEDERHANAKAN sisi mana yang dicek (lihat calculator.py):
-    * EXPORT (dari Indonesia) -> cek OPA (out-of-PICKUP-area) di kode pos ASAL
-      (Indonesia).
-    * IMPORT/ImportOne (ke Indonesia) -> cek ODA (out-of-DELIVERY-area) di kode
-      pos TUJUAN (Indonesia).
-  Sisi satunya (ODA di negara tujuan utk export, OPA di negara asal utk import)
-  BELUM dicek di tahap ini -> lihat catatan "known_limitations" di calculator.py.
+- Kedua sisi shipment SUDAH dicek di calculator.py (bukan cuma sisi Indonesia):
+    * indonesia_postal_code/indonesia_city -> sisi Indonesia:
+        EXPORT (dari Indonesia)   -> OPA (out-of-PICKUP-area) di Indonesia.
+        IMPORT/ImportOne (ke Indonesia) -> ODA (out-of-DELIVERY-area) di Indonesia.
+    * foreign_postal_code -> sisi negara lawan:
+        EXPORT -> ODA (delivery) di negara tujuan.
+        IMPORT -> OPA (pickup) di negara asal.
+  Catatan: sisi negara lawan HANYA dicek kalau `foreign_postal_code` diisi
+  oleh caller -- kalau kosong, sisi itu tidak dihitung (bisa under-estimate;
+  lihat notes yang dihasilkan calculator.py).
 """
 
 import datetime

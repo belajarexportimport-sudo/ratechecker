@@ -77,6 +77,26 @@ def find_country(name: str) -> dict:
     )
 
 
+def effective_country_for_zone(country: str, postal_code: str = None) -> str:
+    """
+    Sama seperti normalisasi "china" -> "cn southern" yang dipakai
+    get_zone() secara internal (lihat di bawah), tapi diekspos supaya
+    caller lain (mis. calculator.py) bisa pakai nama negara yang SUDAH
+    disesuaikan itu untuk keperluan lain -- named-group override commercial
+    rate A26/B26 (lihat rates/commercial.py) HARUS pakai nama yang sama,
+    kalau tidak, shipment China dengan kode pos Southern (Guangdong/Fujian)
+    akan salah match ke group "rest of china" (nilai zone 3) padahal
+    seharusnya "china south" (nilai zone 10) -- bug nyata yang ditemukan
+    saat audit (lihat AUDIT_UPS_COMMERCIAL.md): zone sudah benar resolve ke
+    10, tapi named-group override tetap pakai nama "china" mentah -> hasil
+    akhir salah pakai tabel zone-3.
+    """
+    if country.lower().strip() == "china" and postal_code:
+        if is_china_southern(postal_code):
+            return "cn southern"
+    return country
+
+
 def get_zone(country: str, direction: str, service: str, postal_code: str = None) -> int:
     """
     Dapatkan zone (int 1-10) untuk kombinasi negara/direction/service.

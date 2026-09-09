@@ -29,7 +29,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from backend.core.schemas import RateRequest, RateResult
-from backend.carriers.ups.zones import get_zone, UPSZoneError, is_china_southern
+from backend.carriers.ups.zones import get_zone, UPSZoneError, is_china_southern, effective_country_for_zone
 from backend.carriers.ups.rules import (
     evaluate_package, PackageResult,
     get_surge_region,
@@ -166,7 +166,11 @@ def calculate(request: RateRequest) -> RateResult:
         # A26/B26 punya named-group override per negara (lihat commercial.py) —
         # publish.lookup_rate tidak menerima kwarg ini, jadi hanya dikirim
         # kalau rate_module memang commercial.
-        lookup_kwargs["country"] = country
+        # PENTING: pakai effective_country_for_zone(), BUKAN `country` mentah
+        # -- kalau tidak, China Southern (postal code Guangdong/Fujian) salah
+        # match ke group "rest of china" walau zone sudah benar resolve ke 10
+        # (lihat docstring effective_country_for_zone() di zones.py).
+        lookup_kwargs["country"] = effective_country_for_zone(country, postal_code)
     rate, mode = rate_module.lookup_rate(
         direction, 
         service, 

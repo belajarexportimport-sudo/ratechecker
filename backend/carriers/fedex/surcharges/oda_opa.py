@@ -1,6 +1,6 @@
 """
-FedEx ODA / OPA Tier Lookup - Tahap 1
-======================================
+FedEx ODA / OPA Tier Lookup
+===========================
 Cari tahu apakah suatu kota/kode pos kena:
 - Out-of-Pickup-Area Surcharge (OPA)   -> berlaku saat PENJEMPUTAN
 - Out-of-Delivery-Area Surcharge (ODA) -> berlaku saat PENGIRIMAN/DELIVERY
@@ -10,11 +10,11 @@ Sumber data: ODA_OPA_tiers_codes.xlsx (114 negara, ~67.600 baris kode pos/kota).
 Data mentah sudah diekstrak jadi 'oda_opa_tiers.csv' (satu folder dengan file ini)
 supaya loading cepat & tidak butuh openpyxl saat runtime.
 
+File ini CUMA kasih tahu TIER (No / A / B / C), BUKAN nominal surcharge.
+Nominal per tier (IDR) sudah ada di backend/carriers/fedex/surcharges/core.py
+(compute_oda_opa_charge, sumber: fedex-rates-sur-en-id-2026.pdf).
+
 CATATAN PENTING:
-- File ini CUMA kasih tahu TIER (No / Tier A / Tier B / Tier C), BUKAN nominal
-  surcharge dalam Rupiah/USD. Nominal per tier ada di tabel surcharge terpisah
-  (biasanya di "Surcharge and Other Information" - PDF yang beda dari yang
-  sudah di-upload). Kalau ada tabelnya, kasih ke saya, nanti saya gabungkan.
 - Kalau negara/kode pos TIDAK ada di data -> kemungkinan besar TIDAK kena
   surcharge ODA/OPA (arealnya dianggap standard), tapi tetap disarankan
   konfirmasi ke FedEx untuk kepastian.
@@ -22,6 +22,24 @@ CATATAN PENTING:
   zip "01002"), itu sudah coba ditangani. Untuk negara dengan format campuran/
   tidak konsisten, pencocokan tetap dilakukan sebisa mungkin (best-effort).
 - Effective per data ini: 13 Jul 2026.
+
+AUDIT (temuan & fix, lihat _merge_tiers() untuk detail):
+- Data sumber ternyata memecah Parcel vs Freight (kadang Pickup vs Delivery)
+  jadi BARIS TERPISAH utk postal range yang sama/tumpang-tindih. Versi lama
+  kode ini cuma ambil baris PERTAMA yang cocok -> diam2 kehilangan data tier
+  di kolom lain (under-charge sistemik). Ditemukan 7131 pasang range
+  tumpang-tindih (7066 US, 58 CN, 7 PH) + 6 entri kota duplikat (SX) --
+  SEMUANYA saling melengkapi (0 baris yang benar2 konflik nilai). Sudah
+  diperbaiki dengan menggabungkan (merge) semua baris yang cocok, bukan
+  ambil yang pertama.
+- Data minor lain (belum diperbaiki, dampak kecil): country_code "SX" dipakai
+  utk dua nama berbeda ("Saint Martin" & "Sint Marteen") -- Saint Martin
+  (sisi Prancis) semestinya ISO "MF", bukan "SX" (Sint Maarten, sisi
+  Belanda). Semua baris terkait kebetulan tier-nya sama (B di semua kolom)
+  jadi TIDAK mempengaruhi hasil hitung saat ini, tapi nama negara yang
+  ditampilkan ke user bisa salah kalau baris pertama yang ke-load kebetulan
+  "Sint Marteen" untuk query "Saint Martin" atau sebaliknya. Perlu file
+  sumber XLSX asli utk memisahkan dengan benar.
 """
 
 import csv
@@ -79,7 +97,16 @@ class ODAOPALookup:
                         "tiers": tiers,
                     })
                 elif city:
-                    self.city_index.setdefault(cc, {})[city.lower()] = tiers
+                    ckey = city.lower()
+                    existing = self.city_index.setdefault(cc, {}).get(ckey)
+                    if existing is None:
+                        self.city_index[cc][ckey] = tiers
+                    else:
+                        # Duplikat (country, city) -- lihat _merge_tiers(): data
+                        # sumber kadang memecah baris Parcel vs Freight utk kota
+                        # yang sama. Gabung, jangan overwrite (dulu overwrite ->
+                        # baris pertama diam2 hilang).
+                        self.city_index[cc][ckey] = self._merge_tiers([existing, tiers])
 
     # -----------------------------------------------------------------
     def resolve_country_code(self, country):
@@ -98,6 +125,39 @@ class ODAOPALookup:
             raise ODAOPAError(f"'{country}' ambigu, cocok dengan: {names}")
         return None  # negara tidak ada di data ODA/OPA sama sekali
 
+    _TIER_SEVERITY = {"No": 0, "A": 1, "B": 2, "C": 3}
+
+    @classmethod
+    def _merge_tiers(cls, tiers_list):
+        """
+        Gabungkan beberapa dict tiers (masing2 {parcel_pickup, freight_pickup,
+        parcel_delivery, freight_delivery}) jadi satu.
+
+        LATAR BELAKANG (temuan audit -- lihat AUDIT_ODA_OPA.md):
+        Data sumber (ODA_OPA_tiers_codes.xlsx) ternyata memecah Parcel vs
+        Freight (kadang juga Pickup vs Delivery) jadi BARIS TERPISAH untuk
+        postal code/range yang SAMA atau tumpang-tindih, dengan kolom yang
+        tidak relevan di-default "No". Sebelum fix ini, _match_postal()/
+        lookup_by_postal_only() cuma ambil baris PERTAMA yang cocok dan diam2
+        BUANG data tier di kolom lain -> under-charge sistemik. Diverifikasi:
+        7131 pasang range tumpang-tindih (7066 US, 58 CN, 7 PH) + 6 entri kota
+        duplikat (SX), dan SEMUANYA saling melengkapi (0 baris yang benar2
+        beda nilai utk kolom yang sama) -> aman digabung apa adanya.
+
+        Kalau suatu saat data diupdate dan MEMANG ada baris yang beda nilai
+        utk kolom yang sama (belum pernah terjadi di data saat ini), demi
+        keamanan (jangan diam2 under-charge) kita ambil tier yang PALING
+        TINGGI severity-nya (No < A < B < C), bukan yang pertama ketemu.
+        """
+        merged = {"parcel_pickup": "No", "freight_pickup": "No",
+                  "parcel_delivery": "No", "freight_delivery": "No"}
+        for t in tiers_list:
+            for k in merged:
+                v = (t.get(k) or "No").strip() or "No"
+                if cls._TIER_SEVERITY.get(v, 0) > cls._TIER_SEVERITY.get(merged[k], 0):
+                    merged[k] = v
+        return merged
+
     def _match_postal(self, cc, postal_code):
         postal_code = postal_code.strip().upper().replace(" ", "").replace("-", "")
         candidates = self.range_index.get(cc, [])
@@ -105,16 +165,22 @@ class ODAOPALookup:
             return None
 
         numeric_input = _is_numeric(postal_code)
+        matched = []
         for c in candidates:
             if c["is_num"] and numeric_input:
                 if int(c["begin"]) <= int(postal_code) <= int(c["end"]):
-                    return c["tiers"]
+                    matched.append(c["tiers"])
             elif not c["is_num"]:
                 b = c["begin"].upper().replace(" ", "")
                 e = c["end"].upper().replace(" ", "")
                 if b <= postal_code <= e:
-                    return c["tiers"]
-        return None
+                    matched.append(c["tiers"])
+        if not matched:
+            return None
+        if len(matched) == 1:
+            return matched[0]
+        # >1 range cocok utk postal code ini -> gabung (lihat _merge_tiers).
+        return self._merge_tiers(matched)
 
     def _match_city(self, cc, city):
         cities = self.city_index.get(cc, {})
@@ -132,27 +198,29 @@ class ODAOPALookup:
         """
         postal_norm = postal_code.strip().upper().replace(" ", "").replace("-", "")
         numeric_input = _is_numeric(postal_norm)
-        matches = []
+        matched_by_cc = {}
         for cc, candidates in self.range_index.items():
+            hits = []
             for c in candidates:
                 if c["is_num"] and numeric_input:
                     if int(c["begin"]) <= int(postal_norm) <= int(c["end"]):
-                        matches.append({
-                            "country": self.country_names.get(cc, cc),
-                            "country_code": cc,
-                            "tiers": c["tiers"],
-                        })
-                        break  # 1 match per negara cukup
+                        hits.append(c["tiers"])
                 elif not c["is_num"] and not numeric_input:
                     b = c["begin"].upper().replace(" ", "")
                     e = c["end"].upper().replace(" ", "")
                     if b <= postal_norm <= e:
-                        matches.append({
-                            "country": self.country_names.get(cc, cc),
-                            "country_code": cc,
-                            "tiers": c["tiers"],
-                        })
-                        break
+                        hits.append(c["tiers"])
+            if hits:
+                matched_by_cc[cc] = hits
+
+        matches = []
+        for cc, hits in matched_by_cc.items():
+            tiers = hits[0] if len(hits) == 1 else self._merge_tiers(hits)
+            matches.append({
+                "country": self.country_names.get(cc, cc),
+                "country_code": cc,
+                "tiers": tiers,
+            })
         return matches
 
     def lookup(self, country, postal_code=None, city=None):
