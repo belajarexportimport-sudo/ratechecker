@@ -1,0 +1,15 @@
+{
+  "name": "calculator-rate-comparison-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Port Cloudflare Workers (vanilla JS, zero-dependency) dari backend/ Python. Lihat AUDIT_JS_PORT.md.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
