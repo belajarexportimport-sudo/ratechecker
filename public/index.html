@@ -419,6 +419,42 @@
             }
         }
 
+        // === Kumpulkan semua checkbox Special Handling / Optional Surcharges ===
+        // BUG ditemukan 12 Sep 2026: 22 checkbox ini sudah ada di HTML sejak
+        // lama, tapi TIDAK ADA satupun kode yang membacanya ke request ->
+        // dicentang atau tidak, hasilnya SAMA (tidak pernah masuk hitungan).
+        // FedEx & UPS calculator.js SAMA-SAMA baca `request.special_handling`
+        // (top-level, BUKAN di dalam `extra`), masing-masing ambil key yang ia
+        // kenal & abaikan sisanya -- jadi aman digabung jadi satu objek.
+        const checkbox = (id) => document.getElementById(id)?.checked || false;
+        const specialHandling = {
+            // --- Shared / sama-sama dipakai FedEx & UPS ---
+            saturday_delivery: checkbox('shSaturdayDelivery'),
+            residential: checkbox('shResidential'),
+            address_correction: checkbox('shAddressCorrection'),
+            // --- Khusus FedEx (lihat surcharges/special_handling.js) ---
+            saturday_pickup: checkbox('shSaturdayPickup'),
+            third_party_consignee: checkbox('shThirdPartyConsignee'),
+            broker_select: checkbox('shBrokerSelect'),
+            isr: checkbox('shIsr'),
+            dsr: checkbox('shDsr'),
+            asr: checkbox('shAsr'),
+            dry_ice: checkbox('shDryIce'),
+            accessible_dangerous_goods: checkbox('shAccessibleDg'),
+            inaccessible_dangerous_goods: checkbox('shInaccessibleDg'),
+            // --- Khusus UPS (lihat surcharges/optional.js) ---
+            direct_delivery_only: checkbox('shDirectDeliveryOnly'),
+            extended_area: checkbox('shExtendedArea'),
+            remote_area: checkbox('shRemoteArea'),
+            export_declaration: checkbox('shExportDeclaration'),
+            import_declaration: checkbox('shImportDeclaration'),
+            delivery_confirmation_signature: checkbox('shDeliveryConfSig'),
+            delivery_confirmation_adult_signature: checkbox('shDeliveryConfAdultSig'),
+            duty_tax_forwarding: checkbox('shDutyTaxForwarding'),
+            paper_commercial_invoice: checkbox('shPaperInvoice'),
+            carbon_offset: checkbox('shCarbonOffset'),
+        };
+
         const reqPayload = {
             base_request: {
                 carrier: 'fedex', // Base as fedex
@@ -430,6 +466,7 @@
                 postal_code_origin: isExport ? undefined : (postalCode || undefined),
                 postal_code_destination: isExport ? (postalCode || undefined) : undefined,
                 weight_kg: collies.reduce((sum, c) => sum + c.weight_kg, 0),
+                special_handling: specialHandling,
                 extra: {}
             },
             combinations: [

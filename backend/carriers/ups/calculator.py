@@ -331,6 +331,11 @@ def calculate(request: RateRequest) -> RateResult:
         surcharges["IPF"] = OPTIONAL_COSTS["ipf"]
     if optional.get("paper_invoice"):
         surcharges["Paper Invoice"] = OPTIONAL_COSTS["paper_invoice"]
+    if optional.get("carbon_offset"):
+        surcharges["UPS Carbon Offsets"] = (
+            OPTIONAL_COSTS["carbon_offset_pallet"] if is_wwef
+            else OPTIONAL_COSTS["carbon_offset_package"]
+        )
 
     declared_value_idr = optional.get("declared_value_idr") or 0
     if declared_value_idr > 0:

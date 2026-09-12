@@ -7,6 +7,32 @@ export const COSTS_MAY_24_2026 = {
     BROKERAGE: 118647
 };
 
+// Optional surcharges (UPS Rate & Service Guide Indonesia, efektif 7 Jun
+// 2026) -- PORT dari backend/carriers/ups/rules.py OPTIONAL_COSTS. Ini yang
+// tadinya TIDAK ADA SAMA SEKALI di calculator.js (audit 12 Sep 2026: banyak
+// checkbox di frontend sudah ada, misalnya "Adult Signature Required", tapi
+// backend JS-nya belum pernah mengimplementasikan surcharge-nya sama sekali,
+// bukan cuma soal wiring).
+export const OPTIONAL_COSTS = {
+    extended_area_min: 429792,
+    extended_area_kg: 8288,
+    remote_area_min: 479964,
+    remote_area_kg: 9472,
+    peb: 190189,
+    residential: 58312,       // Saver/Expedited
+    residential_wwef: 1879600, // Per AWB (freight)
+    adult_signature: 71040,
+    delivery_confirm: 37740,
+    alternate_broker: 429502,
+    duty_tax_forward: 310060,
+    ipf: 37000,
+    paper_invoice: 370000,
+    insurance_free_limit: 1480000,
+    insurance_unit_rate: 32710,
+    carbon_offset_package: 11690,   // per package (non-freight)
+    carbon_offset_pallet: 311980,   // per pallet (UPS Worldwide Express Freight)
+};
+
 // International Processing Fee (IPF) -- UPS: dikenakan flat per shipment
 // utk EKSPOR ke US saja (WW Express/Express Plus/Express Saver/Expedited).
 // Tidak berlaku utk Envelope maupun WWEF, dan tidak berlaku utk import.

@@ -63,6 +63,11 @@ OPTIONAL_COSTS = {
     "paper_invoice":     370000,
     "insurance_free_limit": 1480000,
     "insurance_unit_rate":    32710,
+    # Ditambahkan 12 Sep 2026 (UPS Rate & Service Guide Indonesia, efektif
+    # 7 Jun 2026) -- sebelumnya checkbox "UPS Carbon Offsets" di frontend
+    # sudah ada tapi belum ada datanya sama sekali di backend manapun.
+    "carbon_offset_package": 11690,     # per package (non-freight)
+    "carbon_offset_pallet":  311980,    # per pallet (UPS Worldwide Express Freight)
 }
 
 # ── Region classification ─────────────────────────────────────────────────────
