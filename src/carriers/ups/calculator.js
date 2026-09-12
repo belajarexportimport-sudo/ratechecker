@@ -37,18 +37,48 @@ export function calculate(request) {
         } catch (_) { /* tetap pakai service semula */ }
     }
 
-    // === STEP 2: Chargeable weight ===
-    const length = request.dimensions_cm ? request.dimensions_cm[0] : 0
-    const width  = request.dimensions_cm ? request.dimensions_cm[1] : 0
-    const height = request.dimensions_cm ? request.dimensions_cm[2] : 0
-
+    // === STEP 2: Chargeable weight (support multi-package via request.packages[]) ===
+    // Format lama (dimensions_cm tunggal) TETAP didukung 1:1 spt sebelumnya --
+    // ini cuma nambah cabang baru utk multi-collie, bukan ganti yang lama.
+    const multiPackage = request.packages && request.packages.length > 0
     let dimWeight = 0
-    if (length && width && height) {
-        dimWeight = (length * width * height) / DIM_DIVISOR
+    let chargeableWeight
+    let packageGeoms = []  // dipakai lagi di STEP 4 utk cek surcharge per-collie
+
+    if (multiPackage) {
+        let sumChargeable = 0
+        request.packages.forEach((pkg, i) => {
+            const pw = (pkg.length_cm * pkg.width_cm * pkg.height_cm) / DIM_DIVISOR
+            const pcw = Math.max(pkg.weight_kg, pw)
+            sumChargeable += pcw
+            packageGeoms.push({
+                geom: validateGeometry(pkg.length_cm, pkg.width_cm, pkg.height_cm),
+                weight_kg: pkg.weight_kg,
+                label: pkg.label || `Collie ${i + 1}`,
+                extra: pkg,  // flag kemasan (non_cardboard_packaging, dll) per-collie
+            })
+        })
+        chargeableWeight = sumChargeable
+        // dimWeight (single value) tidak representatif utk multi-collie --
+        // dibiarkan 0, dim weight per-collie tetap dipakai dgn benar di atas.
+    } else {
+        const length = request.dimensions_cm ? request.dimensions_cm[0] : 0
+        const width  = request.dimensions_cm ? request.dimensions_cm[1] : 0
+        const height = request.dimensions_cm ? request.dimensions_cm[2] : 0
+
+        if (length && width && height) {
+            dimWeight = (length * width * height) / DIM_DIVISOR
+        }
+        chargeableWeight = Math.max(request.weight_kg, dimWeight)
+        packageGeoms.push({
+            geom: validateGeometry(length, width, height),
+            weight_kg: request.weight_kg,
+            label: null,
+            extra: request.extra || {},
+        })
     }
 
     // WWEF minimum 71kg
-    let chargeableWeight = Math.max(request.weight_kg, dimWeight)
     if (service === 'wwef') {
         chargeableWeight = Math.max(chargeableWeight, 71)
     }
@@ -65,27 +95,48 @@ export function calculate(request) {
         )
     }
 
-    // === STEP 4: Surcharges ===
+    // === STEP 4: Surcharges (AHS/LPS/OMX dicek PER-COLLIE kalau multi-package --
+    // tiap collie oversize dikenakan surcharge sendiri, sesuai billing UPS
+    // per-piece; label dikasih akhiran nama collie kalau lebih dari 1) ===
     const surcharges = {}
-    const geom = validateGeometry(length, width, height)
-
     let adjustedChargeableWeight = chargeableWeight
 
-    if (request.weight_kg > 70 || geom.L > 274 || geom.length_plus_girth > 400) {
-        // OMX triggers LPS
-        surcharges['Over Maximum (OMX)'] = COSTS_MAY_24_2026.OMX
-        surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
-        adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
-    } else if (geom.length_plus_girth > 300) {
-        surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
-        adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
-    } else if (
-        (request.weight_kg > 25 && request.weight_kg < 71) ||
-        geom.L > 122 || geom.W > 76 ||
-        packagingTriggersAHS(request.extra || {})
-    ) {
-        surcharges['Additional Handling (AHS)'] = COSTS_MAY_24_2026.AHS
-    }
+    packageGeoms.forEach(({ geom, weight_kg, label, extra }) => {
+        const suffix = label ? ` (${label})` : ''
+        const addSurcharge = (key, amount) => {
+            // Kalau ada >1 collie yg sama-sama kena surcharge yg sama tanpa
+            // label (harusnya tidak terjadi krn label selalu diisi di mode
+            // multi-package), jumlahkan alih-alih menimpa.
+            surcharges[key] = (surcharges[key] || 0) + amount
+        }
+        if (weight_kg > 70 || geom.L > 274 || geom.length_plus_girth > 400) {
+            addSurcharge(`Over Maximum (OMX)${suffix}`, COSTS_MAY_24_2026.OMX)
+            addSurcharge(`Large Package Surcharge (LPS)${suffix}`, COSTS_MAY_24_2026.LPS)
+            if (multiPackage) {
+                // Floor 40kg berlaku PER COLLIE yg kena OMX/LPS -- naikkan
+                // total chargeable weight (dipakai Surge Fee) sebesar selisih
+                // collie ini ke 40kg, bukan floor seluruh shipment ke 40kg.
+                const pcw = Math.max(weight_kg, (geom.L * geom.W * geom.H) / DIM_DIVISOR)
+                adjustedChargeableWeight += Math.max(0, 40 - pcw)
+            } else {
+                adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
+            }
+        } else if (geom.length_plus_girth > 300) {
+            addSurcharge(`Large Package Surcharge (LPS)${suffix}`, COSTS_MAY_24_2026.LPS)
+            if (multiPackage) {
+                const pcw = Math.max(weight_kg, (geom.L * geom.W * geom.H) / DIM_DIVISOR)
+                adjustedChargeableWeight += Math.max(0, 40 - pcw)
+            } else {
+                adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
+            }
+        } else if (
+            (weight_kg > 25 && weight_kg < 71) ||
+            geom.L > 122 || geom.W > 76 ||
+            packagingTriggersAHS(extra || {})
+        ) {
+            addSurcharge(`Additional Handling (AHS)${suffix}`, COSTS_MAY_24_2026.AHS)
+        }
+    })
 
     // Brokerage (import saja, bukan envelope)
     if (isImport && service !== 'envelope') {

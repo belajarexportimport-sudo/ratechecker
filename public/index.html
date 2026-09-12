@@ -50,26 +50,36 @@
                         <p id="chinaHint" class="hidden text-xs mt-1 font-medium"></p>
                     </div>
 
-                    <!-- Weight -->
+                    <!-- Collie (Package) -- bisa lebih dari 1 -->
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Berat Aktual (Kg)</label>
-                        <input type="number" id="weight" step="0.1" required min="0.1" placeholder="0.5" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-
-                    <!-- Dimensions -->
-                    <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Dimensi / Volume (Cm) <span class="text-slate-400 font-normal">- Opsional</span></label>
-                        <div class="grid grid-cols-3 gap-2">
-                            <input type="number" id="dimL" placeholder="P" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
-                            <input type="number" id="dimW" placeholder="L" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
-                            <input type="number" id="dimH" placeholder="T" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-slate-700">Collie (Berat &amp; Dimensi)</label>
+                            <button type="button" id="btnAddCollie" class="text-xs font-medium text-blue-600 hover:text-blue-800">+ Tambah Collie</button>
                         </div>
+                        <div id="collieContainer" class="space-y-3"></div>
+                        <p class="text-xs text-slate-400 mt-1">Dimensi wajib diisi kalau collie lebih dari 1 (dipakai utk hitung chargeable weight per collie).</p>
                     </div>
 
                     <!-- FSI -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">FSI (%)</label>
                         <input type="number" id="fsi" step="0.1" placeholder="14.5" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                    </div>
+
+                    <!-- Markup Jual (khusus FedEx Commercial) -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">
+                            Markup Jual <span class="text-slate-400 font-normal">- khusus kartu FedEx Commercial</span>
+                        </label>
+                        <select id="upsellPct" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            <option value="0">Tanpa markup</option>
+                            <option value="10">10%</option>
+                            <option value="15">15%</option>
+                            <option value="20">20%</option>
+                            <option value="25">25%</option>
+                            <option value="30">30%</option>
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Markup ini cuma tampilan harga jual (ditambahkan di sisi frontend), BUKAN surcharge resmi FedEx -- tidak mengubah base rate/perhitungan internal.</p>
                     </div>
 
                     <!-- Diskon -->
@@ -234,6 +244,67 @@
     countryEl.addEventListener('input', updateChinaHint);
     postalEl.addEventListener('input', updateChinaHint);
 
+    // === Multi-Collie: render baris dinamis, minimal 1 collie ===
+    const collieContainer = document.getElementById('collieContainer');
+    let collieCount = 0;
+
+    function collieRowHtml(n) {
+        return `
+            <div class="collie-row border border-slate-200 rounded-lg p-2.5" data-collie="${n}">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-xs font-semibold text-slate-500">Collie ${n}</span>
+                    ${n > 1 ? `<button type="button" class="btnRemoveCollie text-xs text-red-500 hover:text-red-700">Hapus</button>` : ''}
+                </div>
+                <input type="number" class="collieWeight w-full rounded-lg border-slate-300 border p-2 text-sm mb-1.5" step="0.1" min="0.1" placeholder="Berat (Kg)" ${n === 1 ? 'required' : ''}>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <input type="number" class="collieL rounded-lg border-slate-300 border p-2 text-sm" placeholder="P (cm)">
+                    <input type="number" class="collieW rounded-lg border-slate-300 border p-2 text-sm" placeholder="L (cm)">
+                    <input type="number" class="collieH rounded-lg border-slate-300 border p-2 text-sm" placeholder="T (cm)">
+                </div>
+            </div>`;
+    }
+
+    function addCollieRow() {
+        collieCount += 1;
+        collieContainer.insertAdjacentHTML('beforeend', collieRowHtml(collieCount));
+        renumberCollieRows();
+    }
+
+    function renumberCollieRows() {
+        const rows = collieContainer.querySelectorAll('.collie-row');
+        collieCount = rows.length;
+        rows.forEach((row, i) => {
+            const n = i + 1;
+            row.dataset.collie = n;
+            row.querySelector('span').textContent = `Collie ${n}`;
+            const weightInput = row.querySelector('.collieWeight');
+            if (n === 1) {
+                weightInput.required = true;
+            } else {
+                weightInput.required = false;
+            }
+        });
+    }
+
+    collieContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btnRemoveCollie')) {
+            e.target.closest('.collie-row').remove();
+            renumberCollieRows();
+        }
+    });
+    document.getElementById('btnAddCollie').addEventListener('click', addCollieRow);
+    addCollieRow(); // Collie 1 default, tampil dari awal
+
+    function getCollieData() {
+        return Array.from(collieContainer.querySelectorAll('.collie-row')).map((row, i) => ({
+            label: `Collie ${i + 1}`,
+            weight_kg: parseFloat(row.querySelector('.collieWeight').value) || 0,
+            length_cm: parseFloat(row.querySelector('.collieL').value) || 0,
+            width_cm: parseFloat(row.querySelector('.collieW').value) || 0,
+            height_cm: parseFloat(row.querySelector('.collieH').value) || 0,
+        }));
+    }
+
     // Default tanggal pengiriman = hari ini
     const shipDateEl = document.getElementById('shipDate');
     shipDateEl.value = new Date().toISOString().slice(0, 10);
@@ -269,6 +340,25 @@
         const isExport = directionEl.value === 'export';
         const country = countryEl.value;
         const postalCode = postalEl.value.trim();
+
+        // === Ambil data semua collie ===
+        const collies = getCollieData();
+        if (collies.length === 0 || collies[0].weight_kg <= 0) {
+            document.getElementById('errorArea').innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">Berat Collie 1 wajib diisi.</div>`;
+            document.getElementById('btnText').textContent = 'Hitung & Bandingkan';
+            document.getElementById('btnLoader').classList.add('hidden');
+            return;
+        }
+        if (collies.length > 1) {
+            const missingDims = collies.some(c => c.weight_kg <= 0 || c.length_cm <= 0 || c.width_cm <= 0 || c.height_cm <= 0);
+            if (missingDims) {
+                document.getElementById('errorArea').innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">Kalau collie lebih dari 1, berat DAN dimensi (P/L/T) wajib diisi lengkap utk SETIAP collie.</div>`;
+                document.getElementById('btnText').textContent = 'Hitung & Bandingkan';
+                document.getElementById('btnLoader').classList.add('hidden');
+                return;
+            }
+        }
+
         const reqPayload = {
             base_request: {
                 carrier: 'fedex', // Base as fedex
@@ -279,7 +369,7 @@
                 destination_country: isExport ? country : 'Indonesia',
                 postal_code_origin: isExport ? undefined : (postalCode || undefined),
                 postal_code_destination: isExport ? (postalCode || undefined) : undefined,
-                weight_kg: parseFloat(document.getElementById('weight').value),
+                weight_kg: collies.reduce((sum, c) => sum + c.weight_kg, 0),
                 extra: {}
             },
             combinations: [
@@ -291,11 +381,35 @@
             ]
         };
 
-        // Dimensions
-        const l = parseFloat(document.getElementById('dimL').value);
-        const w = parseFloat(document.getElementById('dimW').value);
-        const h = parseFloat(document.getElementById('dimH').value);
-        if (l && w && h) reqPayload.base_request.dimensions_cm = [l, w, h];
+        // Kondisi kemasan (dibaca duluan krn dipakai di kedua cabang di bawah)
+        const pkgFlags = {
+            non_cardboard_packaging: document.getElementById('pkgNonCardboard').checked,
+            round_or_cylindrical: document.getElementById('pkgRoundCylindrical').checked,
+            banded_or_has_wheels_handles_straps: document.getElementById('pkgBandedWheelsHandles').checked,
+            could_entangle_or_damage: document.getElementById('pkgEntangleDamage').checked,
+        };
+
+        if (collies.length === 1) {
+            // 1 collie -> tetap format lama (dimensions_cm + weight_kg top-level,
+            // dimensi opsional) supaya tidak ada perubahan perilaku dari sebelumnya.
+            const c = collies[0];
+            if (c.length_cm && c.width_cm && c.height_cm) {
+                reqPayload.base_request.dimensions_cm = [c.length_cm, c.width_cm, c.height_cm];
+            }
+            Object.assign(reqPayload.base_request.extra, pkgFlags);
+        } else {
+            // >1 collie -> format packages[] (dimensi wajib per collie, sudah
+            // divalidasi di atas). Kondisi kemasan diterapkan sama ke SEMUA
+            // collie (form ini belum punya input kemasan per-collie).
+            reqPayload.base_request.packages = collies.map(c => ({
+                label: c.label,
+                length_cm: c.length_cm,
+                width_cm: c.width_cm,
+                height_cm: c.height_cm,
+                weight_kg: c.weight_kg,
+                ...pkgFlags,
+            }));
+        }
 
         // Extra
         const fsi = parseFloat(document.getElementById('fsi').value);
@@ -319,11 +433,7 @@
         }
         if (Object.keys(discounts).length > 0) reqPayload.discounts = discounts;
 
-        // Kondisi kemasan -> pemicu AHS - Packaging otomatis (FedEx & UPS)
-        reqPayload.base_request.extra.non_cardboard_packaging = document.getElementById('pkgNonCardboard').checked;
-        reqPayload.base_request.extra.round_or_cylindrical = document.getElementById('pkgRoundCylindrical').checked;
-        reqPayload.base_request.extra.banded_or_has_wheels_handles_straps = document.getElementById('pkgBandedWheelsHandles').checked;
-        reqPayload.base_request.extra.could_entangle_or_damage = document.getElementById('pkgEntangleDamage').checked;
+        // Kondisi kemasan sudah di-assign ke extra/packages[] di atas (blok collie).
 
         // Tanggal pengiriman -- dikirim juga ke backend (extra.ship_date) utk
         // referensi/logging, dan dipakai di frontend utk ditampilkan di tiap
@@ -332,6 +442,10 @@
         // BELUM mengubah rate yang dipakai -- murni pencatatan.
         const shipDate = shipDateEl.value;
         if (shipDate) reqPayload.base_request.extra.ship_date = shipDate;
+
+        // Markup jual khusus FedEx Commercial -- diterapkan di render (client-side),
+        // bukan dikirim ke backend, karena ini harga jual bukan surcharge resmi.
+        const upsellPct = parseFloat(document.getElementById('upsellPct').value) || 0;
 
         try {
             const response = await fetch(API_URL, {
@@ -342,7 +456,7 @@
 
             if (!response.ok) throw new Error('API Error: ' + response.statusText);
             const data = await response.json();
-            renderResults(data, shipDate);
+            renderResults(data, shipDate, upsellPct);
             
         } catch (error) {
             document.getElementById('errorArea').innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">Gagal terhubung ke API. Pastikan Worker menyala (npx wrangler dev).<br>Error: ${error.message}</div>`;
@@ -352,7 +466,7 @@
         }
     });
 
-    function renderResults(data, shipDate) {
+    function renderResults(data, shipDate, upsellPct) {
         const container = document.getElementById('cardsContainer');
         const bestTag = document.getElementById('bestTag');
         document.getElementById('resultDate').textContent = shipDate ? `Tanggal pengiriman: ${formatDate(shipDate)}` : '';
@@ -378,6 +492,20 @@
 
             let discHtml = res.discount > 0 ? `<div class="flex justify-between text-sm text-emerald-600 font-medium"><span class="truncate">Diskon</span><span>-${formatMoney(res.discount)}</span></div>` : '';
 
+            // Markup jual -- KHUSUS kartu FedEx Commercial (lihat catatan di
+            // form: ini murni tampilan harga jual, dihitung di frontend,
+            // tidak mengubah base_price/surcharge/total resmi dari API).
+            const isFedexCommercial = res.carrier === 'fedex' && res.rate_type === 'commercial';
+            let upsellHtml = '';
+            let totalLabel = 'TOTAL';
+            let totalValue = res.total;
+            if (isFedexCommercial && upsellPct > 0) {
+                const sellPrice = Math.round(res.total * (1 + upsellPct / 100));
+                upsellHtml = `<div class="flex justify-between text-xs text-slate-400 pt-1"><span>Harga Pokok (internal)</span><span>${formatMoney(res.total)}</span></div>`;
+                totalLabel = `HARGA JUAL (+${upsellPct}%)`;
+                totalValue = sellPrice;
+            }
+
             const card = `
                 <div class="bg-white rounded-xl border ${borderClass} overflow-hidden transition-all hover:shadow-md">
                     <div class="p-5 border-b border-slate-100">
@@ -399,9 +527,10 @@
                         ${surchargesHtml}
                         ${discHtml}
                         <div class="pt-3 mt-3 border-t border-slate-200 flex justify-between items-center">
-                            <span class="font-bold text-slate-800">TOTAL</span>
-                            <span class="font-bold text-lg text-blue-700">${formatMoney(res.total)}</span>
+                            <span class="font-bold text-slate-800">${totalLabel}</span>
+                            <span class="font-bold text-lg text-blue-700">${formatMoney(totalValue)}</span>
                         </div>
+                        ${upsellHtml}
                     </div>
                 </div>
             `;

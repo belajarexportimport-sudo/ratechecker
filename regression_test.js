@@ -114,6 +114,40 @@ const noSwitchCase = calc({ carrier:'fedex', rate_type:'publish', service:'IP',
 checkEq('Dims 40x30x30cm (dalam batas) -> service TETAP IP (kontrol negatif)',
     noSwitchCase.service, 'IP')
 
+// ─── BUG #7: UPS tidak dukung packages[] (multi-collie) -- cuma dimensions_cm ─
+// Ditemukan saat nambah fitur "collie 2, 3, dst" di UI: FedEx sudah dukung
+// request.packages[] sejak BUG #6, tapi UPS calculator.js CUMA baca
+// request.dimensions_cm (single box) -- utk shipment >1 collie, UPS diam-diam
+// kehilangan dim-weight & surcharge AHS/LPS/OMX per-collie (cuma pakai
+// weight_kg total tanpa dimensi sama sekali). Fix: UPS sekarang loop per
+// collie, sama seperti FedEx.
+console.log('\n=== BUG #7: UPS multi-collie (packages[]) ===')
+const upsMulti = pricingRouter.calculate({
+    carrier: 'ups', rate_type: 'publish', service: 'saver', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'Singapore', weight_kg: 15,
+    packages: [
+        { label: 'Collie 1', length_cm: 30, width_cm: 30, height_cm: 30, weight_kg: 5 },
+        { label: 'Collie 2', length_cm: 140, width_cm: 60, height_cm: 60, weight_kg: 10 },
+    ],
+    extra: { fsi_pct: 0 },
+})
+check('2 collie -> chargeable weight = jumlah dim/actual weight per collie (5.4+100.8)',
+    upsMulti.extra.chargeable_weight, 106.2, 0.01)
+checkEq('Collie 2 (length+girth=380cm>300) -> LPS ke-trigger dgn label collie-nya',
+    'Large Package Surcharge (LPS) (Collie 2)' in upsMulti.surcharges, true)
+checkEq('Collie 1 (dalam batas) -> TIDAK kena surcharge apapun',
+    Object.keys(upsMulti.surcharges).some(k => k.includes('Collie 1')), false)
+
+// Kontrol: mode single-package (dimensions_cm) HARUS tetap jalan spt sebelumnya
+// (fix packages[] tidak boleh mengubah jalur lama).
+const upsSingle = pricingRouter.calculate({
+    carrier: 'ups', rate_type: 'publish', service: 'saver', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'Singapore', weight_kg: 2,
+    dimensions_cm: [30, 20, 15], extra: { fsi_pct: 15 },
+})
+check('Mode single dimensions_cm (bukan packages[]) tidak berubah (kontrol negatif)',
+    upsSingle.total, 2083451)
+
 // ─── Summary ─────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(40)}`)
 console.log(`HASIL: ${pass} LULUS | ${fail} GAGAL dari ${pass+fail} test`)
