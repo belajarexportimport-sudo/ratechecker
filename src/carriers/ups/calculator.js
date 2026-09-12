@@ -10,9 +10,11 @@ import {
     IPF_FEE,
     IPF_ELIGIBLE_SERVICES,
     isUnitedStates,
-    packagingTriggersAHS
+    packagingTriggersAHS,
+    computeAdditionalInsurance,
+    computeExtendedAreaCharge,
+    computeRemoteAreaCharge
 } from './rules.js'
-import { computeOptionalUpsSurcharges } from './surcharges/optional.js'
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
@@ -152,29 +154,36 @@ export function calculate(request) {
         surcharges['International Processing Fee (IPF)'] = IPF_FEE
     }
 
+    // Additional Insurance -- opsional, hanya dihitung kalau user isi nilai
+    // barang (extra.declared_value_idr). Murni berbasis nilai, TIDAK ada
+    // komponen berat (beda dgn FedEx -- lihat computeDeclaredValueCharge di
+    // FedEx calculator).
+    const declaredValueIdr = request.extra?.declared_value_idr
+    if (declaredValueIdr) {
+        const insuranceCost = computeAdditionalInsurance(declaredValueIdr)
+        if (insuranceCost > 0) {
+            surcharges['Additional Insurance'] = insuranceCost
+        }
+    }
+
+    // Extended Area / Remote Area -- WAJIB manual (lihat catatan di rules.js),
+    // TIDAK otomatis ter-tick dari kode pos. Mutually exclusive di dunia
+    // nyata (satu titik cuma salah satu), tapi tidak dipaksakan di sini --
+    // kalau user centang dua-duanya, dua-duanya dihitung.
+    const optional = request.extra?.optional || {}
+    if (optional.extended_area) {
+        surcharges['Extended Area'] = pyRound(computeExtendedAreaCharge(adjustedChargeableWeight, optional.extended_area_multiplier || 1))
+    }
+    if (optional.remote_area) {
+        surcharges['Remote Area'] = pyRound(computeRemoteAreaCharge(adjustedChargeableWeight, optional.remote_area_multiplier || 1))
+    }
+
     // Surge Fee (SURGE_V3)
     const region    = determineSurgeRegion(country)
     const surgeDict = isImport ? SURGE_V3.import : SURGE_V3.export
     const surgeRate = surgeDict[region] ?? 0
     if (surgeRate > 0) {
         surcharges['Surge Fee'] = pyRound(surgeRate * Math.ceil(adjustedChargeableWeight))
-    }
-
-    // === STEP 4b: Optional/"tickable" surcharges (PEB, Saturday Delivery,
-    // Residential, dll -- lihat surcharges/optional.js). Ini TIDAK dihitung
-    // otomatis oleh berat/dimensi, cuma muncul kalau user centang di form
-    // (request.optional_surcharges), makanya dipisah dari STEP 4 di atas. ===
-    const packageCount = multiPackage ? request.packages.length : 1
-    const notes = []
-    if (request.optional_surcharges) {
-        const optResult = computeOptionalUpsSurcharges(
-            { service, direction, billedWeightKg: chargeableWeight, packageCount },
-            request.optional_surcharges
-        )
-        optResult.components.forEach(c => {
-            surcharges[c.label] = (surcharges[c.label] || 0) + pyRound(c.amount)
-        })
-        if (optResult.notes && optResult.notes.length > 0) notes.push(...optResult.notes)
     }
 
     // === STEP 5: FSI ===
@@ -215,7 +224,7 @@ export function calculate(request) {
         discount: discount,
         total: total,
         currency: 'IDR',
-        notes: notes,
+        notes: [],
         extra: {
             chargeable_weight: chargeableWeight,
             dim_weight: dimWeight,

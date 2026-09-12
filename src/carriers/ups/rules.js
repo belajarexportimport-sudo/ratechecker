@@ -7,6 +7,24 @@ export const COSTS_MAY_24_2026 = {
     BROKERAGE: 118647
 };
 
+// Additional Insurance -- UPS Rate & Service Guide Indonesia (eff. 7 Jun 2026,
+// hal. 5): "For each shipment over IDR1,480,000, you may purchase additional
+// coverage against loss or damage at IDR32,710 for each additional
+// IDR1,480,000 or fraction thereof." TIDAK ada komponen berat -- murni
+// berbasis nilai barang (declared value).
+export const INSURANCE_FREE_LIMIT = 1480000;
+export const INSURANCE_INCREMENT = 1480000;
+export const INSURANCE_RATE_PER_INCREMENT = 32710;
+
+// declaredValueIdr: nilai barang yang didaftarkan (IDR). Return 0 kalau <=
+// batas gratis (INSURANCE_FREE_LIMIT).
+export function computeAdditionalInsurance(declaredValueIdr) {
+    if (!declaredValueIdr || declaredValueIdr <= INSURANCE_FREE_LIMIT) return 0;
+    const excess = declaredValueIdr - INSURANCE_FREE_LIMIT;
+    const units = Math.ceil(excess / INSURANCE_INCREMENT);
+    return units * INSURANCE_RATE_PER_INCREMENT;
+}
+
 // International Processing Fee (IPF) -- UPS: dikenakan flat per shipment
 // utk EKSPOR ke US saja (WW Express/Express Plus/Express Saver/Expedited).
 // Tidak berlaku utk Envelope maupun WWEF, dan tidak berlaku utk import.
@@ -93,6 +111,30 @@ export function packagingTriggersAHS(opts = {}) {
         banded_or_has_wheels_handles_straps ||
         could_entangle_or_damage
     );
+}
+
+// Extended Area & Remote Area Surcharge -- UPS Rate & Service Guide Indonesia
+// (eff. 7 Jun 2026, hal. 6). TIDAK OTOMATIS: UPS tidak menerbitkan daftar
+// kode pos/titik Extended/Remote Area dalam format yang bisa dibaca mesin di
+// rate guide ini -- PDF-nya sendiri bilang "For a copy of the Extended/Remote
+// Area Surcharge points, please download from ups.com/id" (perlu file
+// terpisah dari UPS). Karena itu ini WAJIB dicentang manual oleh user,
+// persis seperti backend/carriers/ups/calculator.py (extra.optional.
+// extended_area / remote_area) -- bukan auto-detect dari kode pos, beda dgn
+// ODA/OPA FedEx yang datanya sudah ada (oda_opa_data.json).
+export const OPTIONAL_COSTS = {
+    extended_area_min: 429792,
+    extended_area_kg: 8288,
+    remote_area_min: 479964,
+    remote_area_kg: 9472,
+};
+
+export function computeExtendedAreaCharge(chargeableWeightKg, multiplier = 1) {
+    return Math.max(OPTIONAL_COSTS.extended_area_min, OPTIONAL_COSTS.extended_area_kg * chargeableWeightKg) * multiplier;
+}
+
+export function computeRemoteAreaCharge(chargeableWeightKg, multiplier = 1) {
+    return Math.max(OPTIONAL_COSTS.remote_area_min, OPTIONAL_COSTS.remote_area_kg * chargeableWeightKg) * multiplier;
 }
 
 export function validateGeometry(length, width, height) {

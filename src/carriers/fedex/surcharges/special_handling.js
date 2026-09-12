@@ -46,19 +46,6 @@ export const DRY_ICE_FEE = 82000
 
 export const THIRD_PARTY_BILLING_PCT = 2.5
 
-// --- Declared Value Charge for Carriage (Asuransi) ---
-// Sumber: fedex-rates-sur-en-id-2026.pdf hal.3.
-// Liability standar FedEx dibatasi pada yg LEBIH BESAR antara USD20/kg
-// atau USD100/shipment (dlm ekivalen IDR). Kalau nilai barang (declared
-// value) melebihi batas itu, dikenakan "declared value surcharge":
-// IDR34.000 per kelipatan IDR1.375.000 (atau sebagian) dari SELISIH nilai
-// barang thd batas yg lebih besar antara IDR1.375.000 ATAU IDR125.000/pound
-// berat billable.
-export const DECLARED_VALUE_INCREMENT_IDR = 1375000
-export const DECLARED_VALUE_SURCHARGE_PER_INCREMENT_FEE = 34000
-export const DECLARED_VALUE_PER_LB_THRESHOLD_IDR = 125000
-export const KG_TO_LB = 2.20462262
-
 export function isUsOrEuDestination(direction, country) {
     if (direction !== "export") return false
     const c = country.trim().toLowerCase()
@@ -84,8 +71,7 @@ export function computeSpecialHandling(service, direction, country, billed_weigh
         accessible_dangerous_goods = false,
         inaccessible_dangerous_goods = false,
         dry_ice = false,
-        inbound_processing_fee_override = null,
-        declared_value_idr = 0,
+        inbound_processing_fee_override = null
     } = opts
 
     const is_freight = ["IPF", "IEF"].includes(service.toUpperCase())
@@ -173,19 +159,6 @@ export function computeSpecialHandling(service, direction, country, billed_weigh
             notes.push("Dangerous Goods surcharge sudah diterapkan -> Dry Ice Surcharge TIDAK dibebankan (sesuai aturan FedEx: DG + dry ice bareng, cuma DG surcharge yang berlaku).")
         } else {
             components.push({ label: "Dry Ice Surcharge", amount: DRY_ICE_FEE })
-        }
-    }
-
-    // --- Declared Value Charge for Carriage (Asuransi) ---
-    if (declared_value_idr > 0) {
-        const weightLb = billed_weight_kg * KG_TO_LB
-        const threshold = Math.max(DECLARED_VALUE_INCREMENT_IDR, DECLARED_VALUE_PER_LB_THRESHOLD_IDR * weightLb)
-        if (declared_value_idr > threshold) {
-            const excess = declared_value_idr - threshold
-            const increments = Math.ceil(excess / DECLARED_VALUE_INCREMENT_IDR)
-            components.push({ label: "Declared Value Charge for Carriage", amount: increments * DECLARED_VALUE_SURCHARGE_PER_INCREMENT_FEE })
-        } else {
-            notes.push(`Nilai barang (IDR${declared_value_idr.toLocaleString('id-ID')}) belum melebihi batas liabilitas standar FedEx (IDR${Math.round(threshold).toLocaleString('id-ID')}, dihitung dari berat billable ${billed_weight_kg}kg) -- tidak ada declared value surcharge.`)
         }
     }
 

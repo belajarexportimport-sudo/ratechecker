@@ -113,90 +113,37 @@
                         </details>
                     </div>
 
-                    <!-- Surcharge Opsional (checkbox, tinggal di-tick kalau berlaku) -->
-                    <div>
-                        <details class="border border-slate-200 rounded-lg">
-                            <summary class="cursor-pointer select-none text-sm font-medium text-slate-700 p-2.5">
-                                Surcharge Opsional <span class="text-slate-400 font-normal">- centang kalau berlaku (PEB, Saturday Delivery, dll)</span>
-                            </summary>
-                            <div class="p-3 pt-1 space-y-4">
-
-                                <!-- Berlaku ke FedEx & UPS sekaligus -->
-                                <div>
-                                    <p class="text-xs font-semibold text-slate-500 uppercase mb-1.5">Berlaku ke FedEx &amp; UPS</p>
-                                    <div class="space-y-1.5 text-sm text-slate-600">
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_saturday_delivery" class="rounded border-slate-300"> Saturday Delivery</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_residential" class="rounded border-slate-300"> Residential Delivery <span class="text-slate-400">(FedEx: cuma berlaku ke US/Canada)</span></label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_address_correction" class="rounded border-slate-300"> Address Correction</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_dry_ice" class="rounded border-slate-300"> Dry Ice</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_dsr" class="rounded border-slate-300"> Signature Required (Direct)</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="sh_asr" class="rounded border-slate-300"> Signature Required (Adult)</label>
-                                        <div class="pt-1">
-                                            <label class="block text-xs text-slate-500 mb-0.5">Nilai Barang / Declared Value (IDR) <span class="text-slate-400">- utk hitung Asuransi (UPS Additional Insurance / FedEx Declared Value Charge)</span></label>
-                                            <input type="number" id="declared_value_idr" step="1" placeholder="Kosongkan kalau tidak perlu asuransi tambahan" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Khusus UPS -->
-                                <div>
-                                    <p class="text-xs font-semibold text-amber-600 uppercase mb-1.5">Khusus UPS</p>
-                                    <div class="space-y-1.5 text-sm text-slate-600">
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_peb" class="rounded border-slate-300"> Export Declaration Surcharge <span class="text-slate-400">(mirip PEB - hanya utk barang strategic/controlled atau formal declaration atas permintaan)</span></label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_pib" class="rounded border-slate-300"> Import Declaration Surcharge <span class="text-slate-400">(mirip PIB - hanya utk barang strategic/controlled atau formal declaration atas permintaan; PIB rutin sudah termasuk di Brokerage)</span></label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_extended_area" class="rounded border-slate-300"> Extended Area Surcharge (DAS)</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_remote_area" class="rounded border-slate-300"> Remote Area Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_direct_delivery_only" class="rounded border-slate-300"> Direct Delivery Only</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_duty_tax_forwarding" class="rounded border-slate-300"> Duty/Tax Forwarding Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_lookup_surcharge" class="rounded border-slate-300"> Look-up Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_rebill_fee" class="rounded border-slate-300"> Rebill Fee</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_document_fee" class="rounded border-slate-300"> Document Fee</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_post_entry_clearance" class="rounded border-slate-300"> Post Entry Clearance</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_temp_import_export" class="rounded border-slate-300"> Temporary Import/Export Clearance</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_alternate_broker" class="rounded border-slate-300"> Alternate Broker</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_carbon_offset" class="rounded border-slate-300"> UPS Carbon Offset</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_prohibited_item" class="rounded border-slate-300"> Prohibited Item Fee</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_paper_commercial_invoice" class="rounded border-slate-300"> Paper Commercial Invoice Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_pre_release_notification" class="rounded border-slate-300"> Pre-Release Notification Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_bill_receiver_refusal" class="rounded border-slate-300"> Bill Receiver/Freight Collect Refusal Fee</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="ups_delivery_reattempt" class="rounded border-slate-300"> Delivery Reattempt <span class="text-slate-400">(khusus WWEF)</span></label>
-
-                                        <div>
-                                            <label class="block text-xs text-slate-500 mb-0.5">UPS Import Control</label>
-                                            <select id="ups_import_control" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
-                                                <option value="">Tidak dipakai</option>
-                                                <option value="print">Print Label</option>
-                                                <option value="electronic">Electronic Label</option>
-                                            </select>
-                                        </div>
-
-                                        <label class="flex items-center gap-1.5 pt-1"><input type="checkbox" id="ups_disbursement_fee" class="rounded border-slate-300"> Disbursement Fee</label>
-                                        <div>
-                                            <label class="block text-xs text-slate-500 mb-0.5">Nilai Duty/Tax (IDR) <span class="text-slate-400">- opsional, utk hitung Disbursement Fee 5.9%</span></label>
-                                            <input type="number" id="ups_duty_tax_amount" step="1" placeholder="kosongkan = pakai minimum IDR94.159" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Khusus FedEx -->
-                                <div>
-                                    <p class="text-xs font-semibold text-purple-600 uppercase mb-1.5">Khusus FedEx</p>
-                                    <div class="space-y-1.5 text-sm text-slate-600">
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="fdx_third_party_consignee" class="rounded border-slate-300"> Third Party Consignee Surcharge</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="fdx_broker_select" class="rounded border-slate-300"> FedEx International Broker Select</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="fdx_saturday_pickup" class="rounded border-slate-300"> Saturday Pick Up</label>
-                                        <label class="flex items-center gap-1.5"><input type="checkbox" id="fdx_isr" class="rounded border-slate-300"> Signature Required (Indirect/ISR)</label>
-                                    </div>
-                                </div>
-
-                            </div>
-                        </details>
-                    </div>
-
                     <!-- Tanggal Pengiriman -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Tanggal Pengiriman</label>
                         <input type="date" id="shipDate" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+
+                    <!-- Nilai Barang / Declared Value (opsional -> Insurance/Declared Value Charge) -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">
+                            Nilai Barang (IDR) <span class="text-slate-400 font-normal">- Opsional</span>
+                        </label>
+                        <input type="number" id="declaredValue" step="1000" min="0" placeholder="mis. 5000000" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                        <p class="text-xs text-slate-400 mt-1">UPS: gratis s/d Rp1.480.000, lebih dari itu kena Rp32.710 / kelipatan Rp1.480.000. FedEx: ambang gratisnya JUGA dipengaruhi berat (yang lebih besar antara Rp1.375.000 atau Rp125.000/pound), lebih dari itu kena Rp34.000 / kelipatan Rp1.375.000.</p>
+                    </div>
+
+                    <!-- UPS Extended Area / Remote Area (manual -- UPS tidak menerbitkan daftar titiknya dalam format yang bisa dibaca otomatis di sini) -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">
+                            UPS Extended/Remote Area <span class="text-slate-400 font-normal">- Opsional, manual</span>
+                        </label>
+                        <p class="text-xs text-slate-400 mb-1.5">Belum bisa otomatis (UPS cuma menerbitkan daftar titiknya lewat file terpisah di ups.com/id) -- centang kalau kamu tahu alamatnya termasuk Extended/Remote Area.</p>
+                        <div class="flex gap-4">
+                            <label class="flex items-center gap-1.5 text-sm text-slate-600">
+                                <input type="checkbox" id="upsExtendedArea" class="rounded border-slate-300">
+                                <span>Extended Area</span>
+                            </label>
+                            <label class="flex items-center gap-1.5 text-sm text-slate-600">
+                                <input type="checkbox" id="upsRemoteArea" class="rounded border-slate-300">
+                                <span>Remote Area</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="pt-4">
@@ -494,62 +441,6 @@
         }
 
 
-        // === Surcharge Opsional (checkbox) -> dipecah ke special_handling
-        // (khusus dibaca oleh FedEx calculator.js) & optional_surcharges
-        // (khusus dibaca oleh UPS calculator.js). Field yg "berlaku ke
-        // FedEx & UPS" diisi ke KEDUA object sekaligus dgn nama field
-        // masing2 carrier (nama surcharge & nominalnya tetap beda per
-        // carrier, cuma checkbox-nya yg digabung biar form tidak dobel). ===
-        const chk = (id) => document.getElementById(id).checked;
-        const declaredValue = parseFloat(document.getElementById('declared_value_idr').value) || 0;
-
-        reqPayload.base_request.special_handling = {
-            saturday_delivery: chk('sh_saturday_delivery'),
-            residential: chk('sh_residential'),
-            address_correction: chk('sh_address_correction'),
-            dry_ice: chk('sh_dry_ice'),
-            dsr: chk('sh_dsr'),
-            asr: chk('sh_asr'),
-            third_party_consignee: chk('fdx_third_party_consignee'),
-            broker_select: chk('fdx_broker_select'),
-            saturday_pickup: chk('fdx_saturday_pickup'),
-            isr: chk('fdx_isr'),
-            declared_value_idr: declaredValue,
-        };
-
-        const importControlVal = document.getElementById('ups_import_control').value;
-        reqPayload.base_request.optional_surcharges = {
-            saturday_delivery: chk('sh_saturday_delivery'),
-            residential: chk('sh_residential'),
-            address_correction: chk('sh_address_correction'),
-            dry_ice: chk('sh_dry_ice'),
-            delivery_confirmation_signature: chk('sh_dsr'),
-            delivery_confirmation_adult_signature: chk('sh_asr'),
-            declared_value_idr: declaredValue,
-            export_declaration: chk('ups_peb'),
-            import_declaration: chk('ups_pib'),
-            extended_area: chk('ups_extended_area'),
-            remote_area: chk('ups_remote_area'),
-            direct_delivery_only: chk('ups_direct_delivery_only'),
-            duty_tax_forwarding: chk('ups_duty_tax_forwarding'),
-            lookup_surcharge: chk('ups_lookup_surcharge'),
-            rebill_fee: chk('ups_rebill_fee'),
-            document_fee: chk('ups_document_fee'),
-            post_entry_clearance: chk('ups_post_entry_clearance'),
-            temporary_import_export_clearance: chk('ups_temp_import_export'),
-            alternate_broker: chk('ups_alternate_broker'),
-            carbon_offset: chk('ups_carbon_offset'),
-            prohibited_item: chk('ups_prohibited_item'),
-            paper_commercial_invoice: chk('ups_paper_commercial_invoice'),
-            pre_release_notification: chk('ups_pre_release_notification'),
-            bill_receiver_refusal: chk('ups_bill_receiver_refusal'),
-            delivery_reattempt: chk('ups_delivery_reattempt'),
-            import_control_print_label: importControlVal === 'print',
-            import_control_electronic_label: importControlVal === 'electronic',
-            disbursement_fee: chk('ups_disbursement_fee'),
-            duty_tax_amount: parseFloat(document.getElementById('ups_duty_tax_amount').value) || 0,
-        };
-
         // Extra
         const fsi = parseFloat(document.getElementById('fsi').value);
         const disc = parseFloat(document.getElementById('discount').value);
@@ -581,6 +472,20 @@
         // BELUM mengubah rate yang dipakai -- murni pencatatan.
         const shipDate = shipDateEl.value;
         if (shipDate) reqPayload.base_request.extra.ship_date = shipDate;
+
+        // Nilai barang -> Additional Insurance (UPS) / Declared Value Charge (FedEx)
+        const declaredValue = parseFloat(document.getElementById('declaredValue').value);
+        if (declaredValue > 0) reqPayload.base_request.extra.declared_value_idr = declaredValue;
+
+        // UPS Extended/Remote Area -- manual, lihat catatan di form
+        const extArea = document.getElementById('upsExtendedArea').checked;
+        const remArea = document.getElementById('upsRemoteArea').checked;
+        if (extArea || remArea) {
+            reqPayload.base_request.extra.optional = {
+                extended_area: extArea,
+                remote_area: remArea,
+            };
+        }
 
         // Markup jual khusus FedEx Commercial -- diterapkan di render (client-side),
         // bukan dikirim ke backend, karena ini harga jual bukan surcharge resmi.
@@ -631,13 +536,6 @@
 
             let discHtml = res.discount > 0 ? `<div class="flex justify-between text-sm text-emerald-600 font-medium"><span class="truncate">Diskon</span><span>-${formatMoney(res.discount)}</span></div>` : '';
 
-            let notesHtml = '';
-            if (res.notes && res.notes.length > 0) {
-                notesHtml = `<div class="mt-2 pt-2 border-t border-slate-200 space-y-1">` +
-                    res.notes.map(n => `<p class="text-xs text-amber-600">⚠ ${n}</p>`).join('') +
-                    `</div>`;
-            }
-
             // Markup jual -- KHUSUS kartu FedEx Commercial (lihat catatan di
             // form: ini murni tampilan harga jual, dihitung di frontend,
             // tidak mengubah base_price/surcharge/total resmi dari API).
@@ -677,7 +575,6 @@
                             <span class="font-bold text-lg text-blue-700">${formatMoney(totalValue)}</span>
                         </div>
                         ${upsellHtml}
-                        ${notesHtml}
                     </div>
                 </div>
             `;
