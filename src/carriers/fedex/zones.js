@@ -45,11 +45,15 @@ export function getZone(country, isImport, postalCode = null, city = null) {
     return zone
 }
 
-export function findCountryCommercial(name) {
+export function findCountryCommercial(name, isImport) {
+    const dirKey = isImport ? 'import' : 'export'
+    const index = COMMERCIAL_ZONE_INDEX[dirKey]
+    if (!index) throw new Error(`Direction ${dirKey} tidak valid untuk Commercial Zone Index.`)
+
     const key = name.trim().toLowerCase()
-    if (COMMERCIAL_ZONE_INDEX[key]) return COMMERCIAL_ZONE_INDEX[key]
+    if (index[key]) return index[key]
     
-    const matches = Object.entries(COMMERCIAL_ZONE_INDEX).filter(([k, v]) => k.includes(key) || key.includes(k))
+    const matches = Object.entries(index).filter(([k, v]) => k.includes(key) || key.includes(k))
     if (matches.length === 1) return matches[0][1]
     if (matches.length > 1) {
         throw new Error(`Negara '${name}' ambigu (FedEx Commercial).`)
@@ -63,10 +67,6 @@ export function getZoneCommercial(country, isImport, postalCode = null, city = n
         effectiveCountry = resolveChinaZone(postalCode, city)
     }
     
-    const cdata = findCountryCommercial(effectiveCountry)
-    const zone = isImport ? cdata.import : cdata.export
-    if (!zone) {
-        throw new Error(`Direction ${isImport ? 'import' : 'export'} tidak tersedia untuk ${country} (FedEx Commercial)`)
-    }
-    return zone
+    const cdata = findCountryCommercial(effectiveCountry, isImport)
+    return cdata
 }
