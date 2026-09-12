@@ -148,6 +148,25 @@ const upsSingle = pricingRouter.calculate({
 check('Mode single dimensions_cm (bukan packages[]) tidak berubah (kontrol negatif)',
     upsSingle.total, 2083451)
 
+// ─── BUG #8: Kondisi kemasan (AHS-Packaging) harus PER-COLLIE, bukan global ─
+// Ditemukan dari pertanyaan user: "gimana kalau collie 1 silinder, collie 2
+// box normal?" -- sebelum fix ini, form cuma punya 1 set checkbox kemasan
+// yang diterapkan sama ke SEMUA collie (tidak bisa beda per collie).
+console.log('\n=== BUG #8: Kondisi kemasan per-collie (bukan global) ===')
+const mixedPkgFedex = pricingRouter.calculate({
+    carrier: 'fedex', rate_type: 'publish', service: 'IP', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'Singapore', weight_kg: 10,
+    packages: [
+        { label: 'Collie 1', length_cm: 30, width_cm: 30, height_cm: 30, weight_kg: 5, round_or_cylindrical: true },
+        { label: 'Collie 2', length_cm: 40, width_cm: 30, height_cm: 20, weight_kg: 5 },
+    ],
+    extra: {},
+})
+checkEq('Collie 1 (silinder) -> kena AHS-Packaging',
+    'AHS - Packaging (Collie 1)' in mixedPkgFedex.surcharges, true)
+checkEq('Collie 2 (box biasa, TANPA flag) -> TIDAK ikut kena AHS-Packaging',
+    Object.keys(mixedPkgFedex.surcharges).some(k => k.startsWith('AHS - Packaging') && k.includes('Collie 2')), false)
+
 // ─── Summary ─────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(40)}`)
 console.log(`HASIL: ${pass} LULUS | ${fail} GAGAL dari ${pass+fail} test`)
