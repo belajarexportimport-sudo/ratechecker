@@ -304,18 +304,25 @@ export function calculate(request) {
         }
     }
 
-    // Special Handling Fees
-    if (request.special_handling) {
-        const shResult = computeSpecialHandling(
-            service, direction, country, chargeableWeight,
-            { oda_applied: odaApplied, ...request.special_handling }
-        )
-        shResult.components.forEach(c => {
-            surcharges[c.label] = pyRound(c.amount)
-        })
-        if (shResult.notes && shResult.notes.length > 0) {
-            notes.push(...shResult.notes)
-        }
+    // Special Handling Fees -- SEBELUMNYA hanya dihitung kalau caller
+    // eksplisit mengirim `request.special_handling` (truthy). Karena
+    // public/index.html TIDAK PERNAH mengirim field itu, Inbound Processing
+    // Fee (persamaan FedEx utk UPS International Processing Fee/IPF -- US &
+    // EU export, lihat isUsOrEuDestination() di special_handling.js) TIDAK
+    // PERNAH otomatis muncul dari kalkulator web walau logikanya sudah ada.
+    // Fix: selalu panggil computeSpecialHandling() dengan objek kosong kalau
+    // `special_handling` tidak dikirim -- opsi manual (ISR/DSR/Saturday/dll)
+    // tetap default false (tidak berubah), tapi cek otomatis berbasis
+    // destinasi (Inbound Processing Fee) akan selalu jalan.
+    const shResult = computeSpecialHandling(
+        service, direction, country, chargeableWeight,
+        { oda_applied: odaApplied, ...(request.special_handling || {}) }
+    )
+    shResult.components.forEach(c => {
+        surcharges[c.label] = pyRound(c.amount)
+    })
+    if (shResult.notes && shResult.notes.length > 0) {
+        notes.push(...shResult.notes)
     }
 
     // Fuel Surcharge

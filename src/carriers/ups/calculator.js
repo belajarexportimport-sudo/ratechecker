@@ -6,7 +6,11 @@ import {
     COSTS_MAY_24_2026,
     SURGE_V3,
     determineSurgeRegion,
-    validateGeometry
+    validateGeometry,
+    IPF_FEE,
+    IPF_ELIGIBLE_SERVICES,
+    isUnitedStates,
+    packagingTriggersAHS
 } from './rules.js'
 
 export function calculate(request) {
@@ -77,7 +81,8 @@ export function calculate(request) {
         adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
     } else if (
         (request.weight_kg > 25 && request.weight_kg < 71) ||
-        geom.L > 122 || geom.W > 76
+        geom.L > 122 || geom.W > 76 ||
+        packagingTriggersAHS(request.extra || {})
     ) {
         surcharges['Additional Handling (AHS)'] = COSTS_MAY_24_2026.AHS
     }
@@ -85,6 +90,14 @@ export function calculate(request) {
     // Brokerage (import saja, bukan envelope)
     if (isImport && service !== 'envelope') {
         surcharges['Brokerage'] = COSTS_MAY_24_2026.BROKERAGE
+    }
+
+    // International Processing Fee (IPF) -- otomatis, khusus EKSPOR ke US
+    // dgn service Worldwide Saver/Expedited (mewakili WW Express/Express
+    // Plus/Express Saver/Expedited -- engine ini cuma model saver &
+    // expedited). Tidak berlaku utk envelope/WWEF maupun import.
+    if (!isImport && isUnitedStates(country) && IPF_ELIGIBLE_SERVICES.includes(service)) {
+        surcharges['International Processing Fee (IPF)'] = IPF_FEE
     }
 
     // Surge Fee (SURGE_V3)

@@ -7,6 +7,20 @@ export const COSTS_MAY_24_2026 = {
     BROKERAGE: 118647
 };
 
+// International Processing Fee (IPF) -- UPS: dikenakan flat per shipment
+// utk EKSPOR ke US saja (WW Express/Express Plus/Express Saver/Expedited).
+// Tidak berlaku utk Envelope maupun WWEF, dan tidak berlaku utk import.
+export const IPF_FEE = 37000;
+export const IPF_ELIGIBLE_SERVICES = ["saver", "expedited"];
+
+// Nama negara (sudah lowercase) yang dianggap "United States" di data zone
+// UPS (lihat zones_data.js: key "united states" & alias "usa").
+const US_COUNTRY_NAMES = new Set(["united states", "usa", "united states of america", "amerika serikat"]);
+
+export function isUnitedStates(countryName) {
+    return US_COUNTRY_NAMES.has(countryName.trim().toLowerCase());
+}
+
 export const SURGE_V3 = {
     export: {
         "uae": 48840,
@@ -58,6 +72,27 @@ export function determineSurgeRegion(countryName) {
         }
     }
     return "rest of world";
+}
+
+// Jenis kemasan yang otomatis memicu Additional Handling (AHS) di UPS,
+// TERLEPAS dari berat/dimensi (mis. kemasan kertas kado, poly bag tanpa
+// kemasan luar kaku, bentuk bulat/silinder, ada tali/roda/pegangan yang
+// menonjol, atau berpotensi tersangkut/merusak paket lain di dalam
+// kendaraan/pesawat). Nama flag disamakan dgn punya FedEx
+// (nonstandard.js) supaya UI cukup 1 set checkbox utk kedua carrier.
+export function packagingTriggersAHS(opts = {}) {
+    const {
+        non_cardboard_packaging = false,
+        round_or_cylindrical = false,
+        banded_or_has_wheels_handles_straps = false,
+        could_entangle_or_damage = false
+    } = opts;
+    return Boolean(
+        non_cardboard_packaging ||
+        round_or_cylindrical ||
+        banded_or_has_wheels_handles_straps ||
+        could_entangle_or_damage
+    );
 }
 
 export function validateGeometry(length, width, height) {
