@@ -12,6 +12,7 @@ import {
     isUnitedStates,
     packagingTriggersAHS
 } from './rules.js'
+import { computeOptionalUpsSurcharges } from './surcharges/optional.js'
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
@@ -159,6 +160,23 @@ export function calculate(request) {
         surcharges['Surge Fee'] = pyRound(surgeRate * Math.ceil(adjustedChargeableWeight))
     }
 
+    // === STEP 4b: Optional/"tickable" surcharges (PEB, Saturday Delivery,
+    // Residential, dll -- lihat surcharges/optional.js). Ini TIDAK dihitung
+    // otomatis oleh berat/dimensi, cuma muncul kalau user centang di form
+    // (request.optional_surcharges), makanya dipisah dari STEP 4 di atas. ===
+    const packageCount = multiPackage ? request.packages.length : 1
+    const notes = []
+    if (request.optional_surcharges) {
+        const optResult = computeOptionalUpsSurcharges(
+            { service, direction, billedWeightKg: chargeableWeight, packageCount },
+            request.optional_surcharges
+        )
+        optResult.components.forEach(c => {
+            surcharges[c.label] = (surcharges[c.label] || 0) + pyRound(c.amount)
+        })
+        if (optResult.notes && optResult.notes.length > 0) notes.push(...optResult.notes)
+    }
+
     // === STEP 5: FSI ===
     let totalSurchargeBeforeFsi = 0
     for (const v of Object.values(surcharges)) totalSurchargeBeforeFsi += v
@@ -197,7 +215,7 @@ export function calculate(request) {
         discount: discount,
         total: total,
         currency: 'IDR',
-        notes: [],
+        notes: notes,
         extra: {
             chargeable_weight: chargeableWeight,
             dim_weight: dimWeight,
