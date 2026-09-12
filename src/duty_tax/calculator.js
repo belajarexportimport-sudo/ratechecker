@@ -26,25 +26,26 @@
  *   sekadar bantuan pencarian di UI.
  */
 
+import { PPN_RATE } from './constants.js'
+import { computeUpsHandlingFees } from './handling_ups.js'
+import { computeFedexClearanceFees } from './handling_fedex.js'
+
 // --- Tier thresholds (dari total FOB dalam USD, BUKAN CIF) ---
 export const DEMINIMIS_MAX_FOB_USD = 3
 export const FLAT_MAX_FOB_USD = 1500
 
 // --- Rates ---
 export const FLAT_BM_RATE = 0.075      // 7.5%
-export const PPN_RATE = 0.11           // 11%
+export { PPN_RATE }
 export const PPH_RATE_API = 0.025      // 2.5% -- importir ber-API
 export const PPH_RATE_NPWP = 0.075     // 7.5% -- importir ber-NPWP (tanpa API)
 export const PPH_RATE_NO_NPWP = 0.15   // 15% -- tanpa NPWP
 
-// --- Handling (skema "UPS" sesuai kalkulator referensi user) ---
-export const HANDLING_FEE_MIN = 200000
-export const HANDLING_FEE_PCT = 0.025
-export const DISBURSEMENT_FEE_MIN = 94159
-export const DISBURSEMENT_FEE_PCT = 0.059
-export const STORAGE_FEE_PER_KG_PER_DAY = 3016
-export const STORAGE_FEE_MIN_DAYS = 3
-export const DEFAULT_DOC_FEE_IDR = 50000
+// --- Handling: skema ancillary fee sekarang di-dispatch by carrier, lihat
+// handling_ups.js (skema "UPS") dan handling_fedex.js (skema FedEx, ditambah
+// dari "Clearance services and related fees FDX ID.docx"). Konstanta yang
+// dulu di sini (HANDLING_FEE_MIN dkk) sudah dipindah ke handling_ups.js,
+// tetap bisa diimpor dari sana kalau perlu.
 
 // --- PMK 4/2025: HS code prefix -> BM rate DI-OVERRIDE (menggantikan
 // input rate manual user, sesuai app referensi) ---
@@ -100,7 +101,14 @@ function pphRateFor(npwpStatus) {
  * @param {number} [opts.kurs_idr=16500] - kurs pajak (Kemenkeu), dipakai
  *   konversi nilai barang/insurance dari USD ke IDR.
  * @param {'api'|'yes'|'no'} [opts.npwp_status='yes']
- * @param {Object} [opts.handling] - { enabled, doc_fee_idr, warehouse_days, weight_kg }
+ * @param {'ups'|'fedex'} [opts.carrier='ups'] - menentukan skema ancillary
+ *   clearance fee yang dipakai (lihat handling_ups.js / handling_fedex.js).
+ *   Core duty/tax (Bea Masuk/PPN/PPh) di atas SAMA utk kedua carrier.
+ * @param {Object} [opts.handling] - shape beda tergantung carrier:
+ *   UPS: { enabled, doc_fee_idr, warehouse_days, weight_kg }
+ *   FedEx: { enabled, entry_type: 'pibk'|'pib'|'bc23', warehouse_days,
+ *            weight_kg, use_broker_document_transfer,
+ *            use_duty_tax_forwarding, export_formal_clearance }
  * @returns {Object} breakdown lengkap, atau { error } kalau input tidak valid.
  */
 export function computeDutyTax(items, opts = {}) {
@@ -109,6 +117,7 @@ export function computeDutyTax(items, opts = {}) {
         insurance_usd = 0,
         kurs_idr = 16500,
         npwp_status = 'yes',
+        carrier = 'ups',
         handling = {},
     } = opts
 
@@ -192,48 +201,35 @@ export function computeDutyTax(items, opts = {}) {
 
     const totalTaxNoHandling = appliedBM + appliedPPN + appliedPPH
 
-    // --- Handling (skema "UPS": Handling Fee + Disbursement Fee + Doc Fee + Storage Fee) ---
+    // --- Handling / ancillary clearance fees: dispatch by carrier ---
+    // 'ups' (default, backward-compatible) pakai skema Handling Fee +
+    // Disbursement Fee + Doc Fee + Storage Fee (handling_ups.js).
+    // 'fedex' pakai skema Processing Fee + Disbursement Fee/Duty-Tax-
+    // Forwarding-Fee + Storage Fee (per jenis entry) + Broker Document
+    // Transfer + Export Formal Clearance + PPN di atas ancillary fee
+    // (handling_fedex.js, sumber: docx "Clearance services and related
+    // fees FDX ID").
+    const carrierKey = (carrier || 'ups').toLowerCase()
     let handlingBreakdown = null
-    let totalHandling = 0
-    if (totalTaxNoHandling > 0) {
-        const suggestedHandlingFee = Math.max(HANDLING_FEE_MIN, Math.ceil(totalTaxNoHandling * HANDLING_FEE_PCT))
-        const suggestedDisbursementFee = Math.max(DISBURSEMENT_FEE_MIN, Math.ceil(totalTaxNoHandling * DISBURSEMENT_FEE_PCT))
-
-        if (handling.enabled) {
-            const docFee = handling.doc_fee_idr != null ? handling.doc_fee_idr : DEFAULT_DOC_FEE_IDR
-            const whDays = handling.warehouse_days || 0
-            const weightKg = handling.weight_kg || 0
-            const storageFee = whDays >= STORAGE_FEE_MIN_DAYS
-                ? Math.ceil(STORAGE_FEE_PER_KG_PER_DAY * weightKg * whDays)
-                : 0
-            totalHandling = suggestedHandlingFee + suggestedDisbursementFee + docFee + storageFee
-            handlingBreakdown = {
-                enabled: true,
-                handling_fee_idr: suggestedHandlingFee,
-                disbursement_fee_idr: suggestedDisbursementFee,
-                doc_fee_idr: docFee,
-                warehouse_days: whDays,
-                storage_fee_idr: storageFee,
-                total_handling_idr: totalHandling,
-            }
-        } else {
-            handlingBreakdown = {
-                enabled: false,
-                handling_fee_idr: suggestedHandlingFee,
-                disbursement_fee_idr: suggestedDisbursementFee,
-                doc_fee_idr: 0,
-                warehouse_days: 0,
-                storage_fee_idr: 0,
-                total_handling_idr: 0,
-            }
-            notes.push('Handling Fee & Disbursement Fee di atas cuma SARAN (belum dimasukkan ke total) -- aktifkan "Hitung Import Handling" utk memasukkannya ke total.')
+    if (carrierKey === 'fedex') {
+        handlingBreakdown = computeFedexClearanceFees(totalTaxNoHandling, handling)
+    } else {
+        handlingBreakdown = computeUpsHandlingFees(totalTaxNoHandling, handling)
+        if (handlingBreakdown?.notes?.length) {
+            notes.push(...handlingBreakdown.notes)
         }
     }
+    const totalHandling = carrierKey === 'fedex'
+        ? (handlingBreakdown?.total_clearance_fees_idr || 0)
+        : (handlingBreakdown?.total_handling_idr || 0)
 
     const totalTax = totalTaxNoHandling + totalHandling
-    const suggestedWarehouseDays = (tier === 'mfn' || tier === 'mfn-exception') ? 5 : STORAGE_FEE_MIN_DAYS
+    const suggestedWarehouseDays = carrierKey === 'fedex'
+        ? (handling.entry_type === 'pib' ? 1 : 4) // PIB kena sejak hari 1; PIBK/BC2.3 mulai kena hari ke-4
+        : ((tier === 'mfn' || tier === 'mfn-exception') ? 5 : 3)
 
     return {
+        carrier: carrierKey,
         tier,
         tier_label: {
             deminimis: `De Minimis (FOB <= USD${DEMINIMIS_MAX_FOB_USD})`,
