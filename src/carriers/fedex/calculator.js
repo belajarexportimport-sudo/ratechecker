@@ -106,12 +106,35 @@ export function calculate(request) {
     // ke freight, service tetap IP/IE walau seharusnya wajib pindah (bug
     // ditemukan saat audit: dims 52x50x90cm -> length+girth=332cm>330cm).
     // Port persis dari backend/carriers/fedex/calculator.py Tahap 4.
+    //
+    // BUG LANJUTAN ditemukan (9 Sep 2026, audit ulang atas laporan user):
+    // fix di atas HANYA mengecek request.packages (array multi-collie).
+    // Tapi public/index.html (frontend yang BENAR-BENAR dipakai) mengirim
+    // dimensions_cm (single box: [l, w, h]), BUKAN packages -> untuk
+    // input real dari UI, kondisi `request.packages && request.packages.length > 0`
+    // di bawah ini SELALU false, switch tetap tidak pernah kepicu. Diverifikasi
+    // reproduksi: dims 52x50x90cm via dimensions_cm -> service tetap "IP"
+    // walau length+girth=332cm>330cm (persis laporan user). Oversize Charge
+    // sendiri TETAP muncul benar di jalur dimensions_cm (checkPackageSurcharge
+    // tetap dipanggil di bawah), yang salah CUMA service-nya tidak ikut pindah.
+    // Fix: treat dimensions_cm sbg 1 package implisit kalau packages kosong,
+    // supaya switch-check jalan utk KEDUA jalur (packages ATAUPUN dimensions_cm).
     let effectiveWeightKg = request.weight_kg
     let packagesForCwt = request.packages
     const switchNotes = []
-    if (!isFreight(service) && request.packages && request.packages.length > 0
+    const packagesForSwitchCheck = (request.packages && request.packages.length > 0)
+        ? request.packages
+        : (request.dimensions_cm?.length === 3
+            ? [{
+                length_cm: request.dimensions_cm[0],
+                width_cm: request.dimensions_cm[1],
+                height_cm: request.dimensions_cm[2],
+                weight_kg: request.weight_kg,
+              }]
+            : null)
+    if (!isFreight(service) && packagesForSwitchCheck
         && request.auto_switch_service !== false) {
-        const switchInfo = evaluatePackagesForServiceSwitch(service, request.packages)
+        const switchInfo = evaluatePackagesForServiceSwitch(service, packagesForSwitchCheck)
         if (switchInfo.action === 'switch') {
             const forcedLines = switchInfo.forced_fee_preview.map(f => {
                 const extra = f.forced_label
@@ -124,7 +147,7 @@ export function calculate(request) {
                 `Semua collie melebihi batas maksimum ${service} -> service OTOMATIS ` +
                 `dialihkan dari ${service} ke ${switchInfo.new_service}. ` + forcedLines.join(' | ')
             )
-            request.freight_units = request.packages.map((p, i) => ({
+            request.freight_units = packagesForSwitchCheck.map((p, i) => ({
                 label: p.label || `Collie ${i + 1}`,
                 length_cm: p.length_cm,
                 width_cm: p.width_cm,
@@ -132,7 +155,7 @@ export function calculate(request) {
                 weight_kg: p.weight_kg,
                 non_stackable: false,
             }))
-            effectiveWeightKg = request.packages.reduce((s, p) => s + p.weight_kg, 0)
+            effectiveWeightKg = packagesForSwitchCheck.reduce((s, p) => s + p.weight_kg, 0)
             packagesForCwt = null
             service = switchInfo.new_service
         }

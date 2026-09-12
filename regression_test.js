@@ -92,6 +92,28 @@ check('UPS SG 2kg FSI 15% total',
     calc({ carrier:'ups', rate_type:'publish', service:'saver', dest:'Singapore', weight:2, fsi:15 }).total,
     2083451)
 
+// ─── BUG #6: Auto-switch IP/IE -> IPF/IEF tidak jalan lewat dimensions_cm ─
+// Ditemukan dari laporan user: input dims 52x50x90cm (length+girth=332cm
+// >330cm) via UI (yang kirim dimensions_cm, BUKAN packages[]) -> service
+// harusnya WAJIB pindah ke IPF, tapi tetap "IP". Root cause: wiring
+// auto-switch di calculator.js cuma cek request.packages, padahal
+// public/index.html (frontend yang benar-benar dipakai) selalu kirim
+// dimensions_cm untuk kasus 1 collie. Fix: dimensions_cm sekarang
+// di-treat sbg 1 package implisit utk switch-check juga.
+console.log('\n=== BUG #6: Auto-switch via dimensions_cm (single box) ===')
+const switchCase = calc({ carrier:'fedex', rate_type:'publish', service:'IP',
+    dest:'Singapore', weight:10, dims:[52,50,90], fsi:0 })
+checkEq('Dims 52x50x90cm (girth+length=332cm>330) -> auto-switch service ke IPF',
+    switchCase.service, 'IPF')
+checkEq('Setelah switch ke IPF, Oversize Charge (khusus IP/IE) tidak lagi dikenakan',
+    'Oversize Charge' in switchCase.surcharges, false)
+
+// Kontrol negatif: box yang MASIH dalam batas IP tidak boleh ke-switch.
+const noSwitchCase = calc({ carrier:'fedex', rate_type:'publish', service:'IP',
+    dest:'Singapore', weight:10, dims:[40,30,30], fsi:0 })
+checkEq('Dims 40x30x30cm (dalam batas) -> service TETAP IP (kontrol negatif)',
+    noSwitchCase.service, 'IP')
+
 // ─── Summary ─────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(40)}`)
 console.log(`HASIL: ${pass} LULUS | ${fail} GAGAL dari ${pass+fail} test`)
