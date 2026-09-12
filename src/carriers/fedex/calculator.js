@@ -132,8 +132,8 @@ export function calculate(request) {
                 weight_kg: request.weight_kg,
               }]
             : null)
-    if (!isFreight(service) && packagesForSwitchCheck
-        && request.auto_switch_service !== false) {
+    const autoSwitch = request.auto_switch_service ?? request.extra?.auto_switch_service ?? true
+    if (!isFreight(service) && packagesForSwitchCheck && autoSwitch) {
         const switchInfo = evaluatePackagesForServiceSwitch(service, packagesForSwitchCheck)
         if (switchInfo.action === 'switch') {
             const forcedLines = switchInfo.forced_fee_preview.map(f => {
