@@ -269,3 +269,59 @@ export function checkServiceEligibility(length_cm, width_cm, height_cm, weight_k
         measurements: { longest_cm: longest, length_plus_girth_cm: length_plus_girth }
     }
 }
+
+// =============================================================================
+// PERBAIKAN: evaluatePackagesForServiceSwitch() -- port dari
+// evaluate_packages_for_service_switch() Python. checkServiceEligibility()
+// di atas SUDAH ADA sejak sebelumnya tapi TIDAK PERNAH DIPANGGIL di
+// calculator.js -> auto-switch IP/IE -> IPF/IEF TIDAK PERNAH terjadi di JS
+// (dibuktikan: dims 52x50x90cm, length+girth=332cm>330cm, seharusnya WAJIB
+// pindah ke IPF/IEF, tapi service tetap "IP"). Fungsi ini + wiring di
+// calculator.js memperbaiki itu.
+// =============================================================================
+
+export class ShipmentSplitRequired extends Error {
+    constructor(message, eligibility) {
+        super(message)
+        this.name = 'ShipmentSplitRequired'
+        this.eligibility = eligibility
+    }
+}
+
+export function evaluatePackagesForServiceSwitch(service, packages) {
+    const eligibility = packages.map((pkg, i) => {
+        const elig = checkServiceEligibility(pkg.length_cm, pkg.width_cm, pkg.height_cm, pkg.weight_kg)
+        elig.label = pkg.label || `Collie ${i + 1}`
+        return elig
+    })
+
+    const anyRequired = eligibility.some(e => e.required)
+    if (!anyRequired) {
+        return { action: 'none', new_service: null, eligibility }
+    }
+
+    const allRequired = eligibility.every(e => e.required)
+    if (packages.length > 1 && !allRequired) {
+        throw new ShipmentSplitRequired(
+            `Sebagian collie melebihi batas maksimum ${service.toUpperCase()} ` +
+            `(berat >= ${IPIE_MAX_WEIGHT_KG}kg, panjang >= ${IPIE_MAX_LENGTH_CM}cm, ` +
+            `atau panjang+lilit > ${IPIE_MAX_LENGTH_PLUS_GIRTH_CM}cm), sementara collie ` +
+            `lain masih dalam batas. Satu shipment tidak boleh mencampur service ` +
+            `${service.toUpperCase()} dengan IPF/IEF -> pisahkan jadi 2 pengiriman terpisah.`,
+            eligibility
+        )
+    }
+
+    const newService = service.toUpperCase() === 'IP' ? 'IPF' : 'IEF'
+    const forcedFeePreview = packages.map((pkg, i) => {
+        const chk = checkPackageSurcharge(pkg.length_cm, pkg.width_cm, pkg.height_cm, pkg.weight_kg, pkg)
+        return {
+            label: eligibility[i].label,
+            reasons: eligibility[i].reasons,
+            forced_label: chk.label,
+            forced_charge: chk.charge,
+        }
+    })
+
+    return { action: 'switch', new_service: newService, eligibility, forced_fee_preview: forcedFeePreview }
+}

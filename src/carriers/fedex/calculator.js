@@ -6,7 +6,8 @@ import {
     checkPackageSurcharge,
     checkFreightSurcharge,
     computeShipmentChargeableWeight,
-    computeFreightChargeableWeight
+    computeFreightChargeableWeight,
+    evaluatePackagesForServiceSwitch,
 } from './surcharges/nonstandard.js'
 import { computeSpecialHandling } from './surcharges/special_handling.js'
 import {
@@ -83,19 +84,64 @@ function computeDemandSurcharge(service, direction, country, weight) {
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
-    const service   = request.service.toUpperCase()
+    let service     = request.service.toUpperCase()
     const isImport  = direction === 'import'
 
     const country    = isImport ? request.origin_country     : request.destination_country
     const postalCode = isImport ? request.postal_code_origin : request.postal_code_destination
 
-    // === Resolve zone ===
+    // === Resolve zone (semua service IP/IE/IPF/IEF sekaligus -- dipakai lagi
+    // di bawah kalau auto-switch terjadi, tanpa perlu lookup ulang) ===
     let zone
     if (request.rate_type === 'commercial') {
         zone = getZoneCommercial(country, isImport, postalCode, null)
     } else {
         zone = getZone(country, isImport, postalCode, null)
     }
+
+    // === PERBAIKAN: Auto-switch IP/IE -> IPF/IEF ===
+    // evaluatePackagesForServiceSwitch() (nonstandard.js) SUDAH ADA sejak
+    // sebelumnya tapi TIDAK PERNAH dipanggil di sini -> package yang
+    // melebihi batas (mis. length+girth > 330cm) TIDAK PERNAH auto-switch
+    // ke freight, service tetap IP/IE walau seharusnya wajib pindah (bug
+    // ditemukan saat audit: dims 52x50x90cm -> length+girth=332cm>330cm).
+    // Port persis dari backend/carriers/fedex/calculator.py Tahap 4.
+    let effectiveWeightKg = request.weight_kg
+    let packagesForCwt = request.packages
+    const switchNotes = []
+    if (!isFreight(service) && request.packages && request.packages.length > 0
+        && request.auto_switch_service !== false) {
+        const switchInfo = evaluatePackagesForServiceSwitch(service, request.packages)
+        if (switchInfo.action === 'switch') {
+            const forcedLines = switchInfo.forced_fee_preview.map(f => {
+                const extra = f.forced_label
+                    ? ` Kalau dipaksakan tetap ${service}, akan kena ${f.forced_label} ` +
+                      `(IDR ${f.forced_charge.toLocaleString('id-ID')}/collie).`
+                    : ''
+                return `${f.label}: ${f.reasons.join(', ')}.${extra}`
+            })
+            switchNotes.push(
+                `Semua collie melebihi batas maksimum ${service} -> service OTOMATIS ` +
+                `dialihkan dari ${service} ke ${switchInfo.new_service}. ` + forcedLines.join(' | ')
+            )
+            request.freight_units = request.packages.map((p, i) => ({
+                label: p.label || `Collie ${i + 1}`,
+                length_cm: p.length_cm,
+                width_cm: p.width_cm,
+                height_cm: p.height_cm,
+                weight_kg: p.weight_kg,
+                non_stackable: false,
+            }))
+            effectiveWeightKg = request.packages.reduce((s, p) => s + p.weight_kg, 0)
+            packagesForCwt = null
+            service = switchInfo.new_service
+        }
+        // action === 'none' -> lanjut normal. action === 'switch' sudah
+        // ditangani; ShipmentSplitRequired (kalau ada) dibiarkan propagate
+        // ke caller, sama seperti Python (tidak diam-diam ditangani di sini).
+    }
+    request.weight_kg = effectiveWeightKg
+    request.packages = packagesForCwt
 
     // zone returns {IP: 'A', IE: 'A', IPF: 'A', IEF: 'A'} — extract untuk service ini
     const zoneCode = typeof zone === 'object' ? (zone[service] ?? null) : zone
@@ -107,7 +153,10 @@ export function calculate(request) {
     let dimWeight = 0
     let chargeableWeight = 0
     const nonstandardFees = []
-    const notes = isDemandActive() ? [] : ['Demand Surcharge belum berlaku (efektif 21 Sep 2026)']
+    const notes = [
+        ...switchNotes,
+        ...(isDemandActive() ? [] : ['Demand Surcharge belum berlaku (efektif 21 Sep 2026)']),
+    ]
 
     if (request.packages && request.packages.length > 0 && !isFreight(service)) {
         const cwtCalc = computeShipmentChargeableWeight(request.packages)
@@ -269,9 +318,7 @@ export function calculate(request) {
         discount: pyRound(discount),
         total: total,
         currency: 'IDR',
-        notes: isDemandActive()
-            ? []
-            : ['Demand Surcharge belum berlaku (efektif 21 Sep 2026)'],
+        notes: notes,
         extra: {
             chargeable_weight: chargeableWeight,
             dim_weight: dimWeight
