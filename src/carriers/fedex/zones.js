@@ -41,6 +41,9 @@ export function isChinaSouth(postalCode) {
 // KEDUA sisi (Python & JS) supaya tidak divergen lagi.
 const COUNTRY_CODE_ALIASES = {
     'cn': 'china',
+    'cina': 'china',  // ejaan Indonesia -- laporan "commercial China tidak
+                      // muncul" (13 Sep 2026) ternyata user mengetik "Cina",
+                      // bukan "China". Sinkron dgn COUNTRY_CODE_ALIASES Python.
 }
 
 function normalizeCountryKey(name) {

@@ -39,7 +39,15 @@
                     <!-- Country -->
                     <div>
                         <label id="lblCountry" class="block text-sm font-medium text-slate-700 mb-1">Negara Tujuan</label>
-                        <input type="text" id="country" required placeholder="Contoh: Singapore" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <input type="text" id="country" list="countryList" required placeholder="Ketik min. 2 huruf, mis. Sin..." autocomplete="off" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <datalist id="countryList"></datalist>
+                    </div>
+
+                    <!-- Postal Code (opsional, dipakai utk deteksi zone khusus spt China South/ODA-OPA) -->
+                    <div>
+                        <label id="lblPostal" class="block text-sm font-medium text-slate-700 mb-1">Kode Pos Tujuan <span class="text-slate-400 font-normal">- Opsional</span></label>
+                        <input type="text" id="postalCode" placeholder="Contoh: 510000" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <p id="chinaHint" class="hidden text-xs mt-1 font-medium"></p>
                     </div>
 
                     <!-- Weight -->
@@ -119,10 +127,62 @@
     const form = document.getElementById('calcForm');
     const directionEl = document.getElementById('direction');
     const lblCountry = document.getElementById('lblCountry');
-    
-    // Ubah label negara berdasarkan arah
+    const lblPostal = document.getElementById('lblPostal');
+    const countryEl = document.getElementById('country');
+    const postalEl = document.getElementById('postalCode');
+    const chinaHint = document.getElementById('chinaHint');
+
+    // Muat daftar negara sekali di awal utk autocomplete (datalist) --
+    // mencegah salah ketik/salah ejaan negara (mis. "Cina" vs "China")
+    // yang sebelumnya bikin rate commercial "tidak muncul".
+    (async () => {
+        try {
+            const res = await fetch(API_URL.replace('/api/rates/compare', '/api/countries'));
+            const data = await res.json();
+            const list = document.getElementById('countryList');
+            list.innerHTML = data.countries.map(c => `<option value="${c}"></option>`).join('');
+        } catch (e) {
+            console.warn('Gagal memuat daftar negara utk autocomplete:', e.message);
+        }
+    })();
+
+    // Deteksi China South / China (Excluding China South) secara live saat
+    // negara = China & kode pos diisi. Aturan PERSIS sama dgn
+    // src/carriers/fedex/zones.js isChinaSouth() (Fujian 350000-369999,
+    // Guangdong 510000-529999) -- kalau range itu berubah di sana, ubah juga
+    // di sini supaya tidak divergen.
+    const CHINA_SOUTH_RANGES = [[350000, 369999], [510000, 529999]];
+    function isChinaSouthPreview(postal) {
+        const digits = (postal || '').replace(/\D/g, '');
+        if (!digits) return null;
+        const n = parseInt(digits, 10);
+        return CHINA_SOUTH_RANGES.some(([a, b]) => n >= a && n <= b);
+    }
+    function updateChinaHint() {
+        const isChina = ['china', 'cina', 'cn'].includes(countryEl.value.trim().toLowerCase());
+        if (!isChina) { chinaHint.classList.add('hidden'); return; }
+        const postal = postalEl.value.trim();
+        if (!postal) {
+            chinaHint.textContent = 'Isi kode pos China supaya sistem bisa deteksi China (South) vs China (Excluding China South) secara otomatis.';
+            chinaHint.className = 'text-xs mt-1 font-medium text-amber-600';
+            chinaHint.classList.remove('hidden');
+            return;
+        }
+        const south = isChinaSouthPreview(postal);
+        chinaHint.textContent = south
+            ? '✓ Terdeteksi: China (South) -- Fujian/Guangdong (rate berbeda dari China lainnya).'
+            : '✓ Terdeteksi: China (Excluding China South) / Rest of China.';
+        chinaHint.className = `text-xs mt-1 font-medium ${south ? 'text-blue-600' : 'text-slate-500'}`;
+        chinaHint.classList.remove('hidden');
+    }
+    countryEl.addEventListener('input', updateChinaHint);
+    postalEl.addEventListener('input', updateChinaHint);
+
+    // Ubah label negara & kode pos berdasarkan arah
     directionEl.addEventListener('change', (e) => {
-        lblCountry.textContent = e.target.value === 'export' ? 'Negara Tujuan' : 'Negara Asal';
+        const isExport = e.target.value === 'export';
+        lblCountry.textContent = isExport ? 'Negara Tujuan' : 'Negara Asal';
+        lblPostal.textContent = isExport ? 'Kode Pos Tujuan' : 'Kode Pos Asal';
     });
 
     const formatMoney = (amount) => {
@@ -141,7 +201,8 @@
         document.getElementById('errorArea').innerHTML = '';
 
         const isExport = directionEl.value === 'export';
-        const country = document.getElementById('country').value;
+        const country = countryEl.value;
+        const postalCode = postalEl.value.trim();
         const reqPayload = {
             base_request: {
                 carrier: 'fedex', // Base as fedex
@@ -150,6 +211,8 @@
                 direction: directionEl.value,
                 origin_country: isExport ? 'Indonesia' : country,
                 destination_country: isExport ? country : 'Indonesia',
+                postal_code_origin: isExport ? undefined : (postalCode || undefined),
+                postal_code_destination: isExport ? (postalCode || undefined) : undefined,
                 weight_kg: parseFloat(document.getElementById('weight').value),
                 extra: {}
             },

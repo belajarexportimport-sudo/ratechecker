@@ -53,12 +53,20 @@ def is_china_southern(postal_code: str) -> bool:
     return any(r["start"] <= prefix2 <= r["end"] for r in CHINA_SOUTHERN_RANGES)
 
 
+UPS_COUNTRY_ALIASES = {
+    "cina": "china",  # ejaan Indonesia -- sinkron dgn COUNTRY_CODE_ALIASES
+                       # FedEx (backend/carriers/fedex/zones.py), problem yg
+                       # sama berpotensi terjadi di UPS.
+}
+
+
 def find_country(name: str) -> dict:
     """
     Lookup zone data untuk satu negara.
     Return dict dari ZONE_INDEX, atau raise UPSZoneError.
     """
     key = name.strip().lower()
+    key = UPS_COUNTRY_ALIASES.get(key, key)
 
     if key in ZONE_INDEX:
         return ZONE_INDEX[key]

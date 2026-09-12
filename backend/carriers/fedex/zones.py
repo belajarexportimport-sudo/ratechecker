@@ -280,6 +280,8 @@ ZONE_INDEX = _load_zones(_ZONE_CSV)
 # dari "china"), jadi butuh alias eksplisit.
 COUNTRY_CODE_ALIASES = {
     "cn": "china",
+    "cina": "china",  # ejaan Indonesia -- laporan "commercial China tidak muncul"
+                       # (13 Sep 2026) ternyata user mengetik "Cina", bukan "China"
 }
 
 

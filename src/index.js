@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import pricingRouter from './pricing/router.js'
 import compareRouter from './comparison/compare.js'
+import { getCountryList } from './core/countries.js'
 
 const app = new Hono()
 
@@ -13,6 +14,12 @@ app.get('/', (c) => {
     message: 'Multi-Carrier Rate Engine API is running on Cloudflare Workers',
     status: 'OK'
   })
+})
+
+// Daftar negara gabungan (FedEx + UPS) utk autocomplete di frontend --
+// lihat src/core/countries.js utk latar belakang.
+app.get('/api/countries', (c) => {
+  return c.json({ countries: getCountryList() })
 })
 
 // Route kalkulasi rate

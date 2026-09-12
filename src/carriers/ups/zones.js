@@ -13,8 +13,13 @@ export function isChinaSouthern(postalCode) {
     return CHINA_SOUTHERN_RANGES.some(r => prefix2 >= r.start && prefix2 <= r.end);
 }
 
+const UPS_COUNTRY_ALIASES = {
+    'cina': 'china',  // ejaan Indonesia -- sinkron dgn alias FedEx
+}
+
 export function findCountry(name) {
-    const key = name.trim().toLowerCase()
+    let key = name.trim().toLowerCase()
+    key = UPS_COUNTRY_ALIASES[key] || key
     if (ZONE_INDEX[key]) return ZONE_INDEX[key]
     
     const matches = Object.entries(ZONE_INDEX).filter(([k, v]) => k.includes(key) || key.includes(k))
