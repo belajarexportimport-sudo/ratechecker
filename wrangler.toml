@@ -1,0 +1,9 @@
+name = "multi-carrier-rate-engine"
+main = "src/index.js"
+compatibility_date = "2023-12-01"
+
+[assets]
+directory = "./public"
+
+[observability]
+enabled = true

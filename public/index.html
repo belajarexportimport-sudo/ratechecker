@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Carrier Rate Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .loader { border-top-color: #3b82f6; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-slate-800">
+
+<div class="max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
+    <header class="mb-8 text-center md:text-left">
+        <h1 class="text-3xl font-bold text-slate-900">📦 Global Rate Calculator</h1>
+        <p class="text-slate-500 mt-2">Bandingkan harga pengiriman FedEx & UPS secara real-time</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <!-- FORM PANEL -->
+        <div class="lg:col-span-4">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-6">
+                <h2 class="text-lg font-semibold mb-4 border-b pb-2">Detail Pengiriman</h2>
+                
+                <form id="calcForm" class="space-y-4">
+                    <!-- Direction -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Arah Pengiriman</label>
+                        <select id="direction" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            <option value="export">Ekspor (Dari Indonesia)</option>
+                            <option value="import">Impor (Ke Indonesia)</option>
+                        </select>
+                    </div>
+
+                    <!-- Country -->
+                    <div>
+                        <label id="lblCountry" class="block text-sm font-medium text-slate-700 mb-1">Negara Tujuan</label>
+                        <input type="text" id="country" required placeholder="Contoh: Singapore" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+
+                    <!-- Weight -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Berat Aktual (Kg)</label>
+                        <input type="number" id="weight" step="0.1" required min="0.1" placeholder="0.5" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+
+                    <!-- Dimensions -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Dimensi / Volume (Cm) <span class="text-slate-400 font-normal">- Opsional</span></label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="dimL" placeholder="P" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                            <input type="number" id="dimW" placeholder="L" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                            <input type="number" id="dimH" placeholder="T" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                        </div>
+                    </div>
+
+                    <!-- FSI & Discount -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">FSI (%)</label>
+                            <input type="number" id="fsi" step="0.1" placeholder="14.5" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Diskon (%)</label>
+                            <input type="number" id="discount" step="0.1" placeholder="0" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="pt-4">
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-center items-center">
+                            <span id="btnText">Hitung & Bandingkan</span>
+                            <div id="btnLoader" class="hidden loader ease-linear rounded-full border-2 border-t-2 border-white h-5 w-5 ml-2"></div>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- RESULTS PANEL -->
+        <div class="lg:col-span-8">
+            <div id="resultsArea" class="hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold text-slate-800">Hasil Perbandingan</h2>
+                    <span id="bestTag" class="bg-emerald-100 text-emerald-800 text-sm font-semibold px-3 py-1 rounded-full">Termurah: -</span>
+                </div>
+
+                <div id="cardsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Cards will be injected here via JS -->
+                </div>
+                
+                <div id="errorArea" class="mt-6"></div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                <svg class="w-16 h-16 mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                <p class="text-lg">Masukkan detail pengiriman di sebelah kiri</p>
+                <p class="text-sm mt-1">Sistem akan membandingkan rate FedEx & UPS</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Konfigurasi API Endpoint (URL Cloudflare Worker Anda nantinya ditaruh di sini)
+    // Untuk lokal gunakan: http://127.0.0.1:8787/api/rates/compare
+    const API_URL = '/api/rates/compare';
+
+    const form = document.getElementById('calcForm');
+    const directionEl = document.getElementById('direction');
+    const lblCountry = document.getElementById('lblCountry');
+    
+    // Ubah label negara berdasarkan arah
+    directionEl.addEventListener('change', (e) => {
+        lblCountry.textContent = e.target.value === 'export' ? 'Negara Tujuan' : 'Negara Asal';
+    });
+
+    const formatMoney = (amount) => {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
+    };
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        // UI States
+        document.getElementById('btnText').textContent = 'Menghitung...';
+        document.getElementById('btnLoader').classList.remove('hidden');
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('resultsArea').classList.remove('hidden');
+        document.getElementById('cardsContainer').innerHTML = '';
+        document.getElementById('errorArea').innerHTML = '';
+
+        const isExport = directionEl.value === 'export';
+        const country = document.getElementById('country').value;
+        const reqPayload = {
+            base_request: {
+                carrier: 'fedex', // Base as fedex
+                rate_type: 'publish',
+                service: 'IP', // IP will map to Saver in UPS
+                direction: directionEl.value,
+                origin_country: isExport ? 'Indonesia' : country,
+                destination_country: isExport ? country : 'Indonesia',
+                weight_kg: parseFloat(document.getElementById('weight').value),
+                extra: {}
+            },
+            combinations: [
+                ['fedex', 'publish'],
+                ['fedex', 'commercial'],
+                ['ups', 'publish'],
+                ['ups', 'a26'],
+                ['ups', 'b26']
+            ]
+        };
+
+        // Dimensions
+        const l = parseFloat(document.getElementById('dimL').value);
+        const w = parseFloat(document.getElementById('dimW').value);
+        const h = parseFloat(document.getElementById('dimH').value);
+        if (l && w && h) reqPayload.base_request.dimensions_cm = [l, w, h];
+
+        // Extra
+        const fsi = parseFloat(document.getElementById('fsi').value);
+        const disc = parseFloat(document.getElementById('discount').value);
+        if (fsi) reqPayload.base_request.extra.fsi_pct = fsi;
+        if (disc) reqPayload.base_request.discount_pct = disc;
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqPayload)
+            });
+
+            if (!response.ok) throw new Error('API Error: ' + response.statusText);
+            const data = await response.json();
+            renderResults(data);
+            
+        } catch (error) {
+            document.getElementById('errorArea').innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">Gagal terhubung ke API. Pastikan Worker menyala (npx wrangler dev).<br>Error: ${error.message}</div>`;
+        } finally {
+            document.getElementById('btnText').textContent = 'Hitung & Bandingkan';
+            document.getElementById('btnLoader').classList.add('hidden');
+        }
+    });
+
+    function renderResults(data) {
+        const container = document.getElementById('cardsContainer');
+        const bestTag = document.getElementById('bestTag');
+        
+        if (!data.results || data.results.length === 0) {
+            container.innerHTML = `<div class="col-span-full p-4 bg-amber-50 text-amber-800 rounded-lg">Tidak ada rate yang tersedia untuk kombinasi ini.</div>`;
+            return;
+        }
+
+        // Tampilkan Termurah
+        bestTag.innerHTML = `🌟 Termurah: ${data.cheapest.carrier.toUpperCase()} (${data.cheapest.rate_type.toUpperCase()}) - ${formatMoney(data.cheapest.total)}`;
+
+        // Sort dari termurah
+        data.results.sort((a, b) => a.total - b.total).forEach(res => {
+            const isBest = res === data.cheapest;
+            const logoColor = res.carrier === 'fedex' ? 'text-purple-700 bg-purple-100' : 'text-amber-700 bg-amber-100';
+            const borderClass = isBest ? 'border-emerald-500 shadow-md ring-1 ring-emerald-500' : 'border-slate-200';
+
+            let surchargesHtml = '';
+            for (const [k, v] of Object.entries(res.surcharges)) {
+                surchargesHtml += `<div class="flex justify-between text-sm text-slate-500"><span class="truncate">${k}</span><span>${formatMoney(v)}</span></div>`;
+            }
+
+            let discHtml = res.discount > 0 ? `<div class="flex justify-between text-sm text-emerald-600 font-medium"><span class="truncate">Diskon</span><span>-${formatMoney(res.discount)}</span></div>` : '';
+
+            const card = `
+                <div class="bg-white rounded-xl border ${borderClass} overflow-hidden transition-all hover:shadow-md">
+                    <div class="p-5 border-b border-slate-100">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${logoColor}">
+                                ${res.carrier} ${res.rate_type}
+                            </span>
+                            <span class="text-xs font-semibold text-slate-500 uppercase bg-slate-100 px-2 py-1 rounded">Zone ${res.zone}</span>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800">${res.service.toUpperCase()}</h3>
+                        <p class="text-xs text-slate-400 mt-1">Chg. Weight: <span class="font-semibold text-slate-600">${res.extra.chargeable_weight} kg</span></p>
+                    </div>
+                    
+                    <div class="p-5 bg-slate-50 space-y-2">
+                        <div class="flex justify-between text-sm text-slate-600 font-medium">
+                            <span>Base Rate</span>
+                            <span>${formatMoney(res.base_price)}</span>
+                        </div>
+                        ${surchargesHtml}
+                        ${discHtml}
+                        <div class="pt-3 mt-3 border-t border-slate-200 flex justify-between items-center">
+                            <span class="font-bold text-slate-800">TOTAL</span>
+                            <span class="font-bold text-lg text-blue-700">${formatMoney(res.total)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.innerHTML += card;
+        });
+
+        if (data.unavailable && data.unavailable.length > 0) {
+            let unavHtml = `<div class="col-span-full mt-4"><p class="text-xs font-semibold text-slate-500 mb-2 uppercase">Layanan Tidak Tersedia</p><ul class="space-y-2">`;
+            data.unavailable.forEach(u => {
+                unavHtml += `<li class="text-sm text-slate-600 bg-white border border-slate-200 p-2 rounded-lg flex justify-between"><span class="font-medium">${u.carrier.toUpperCase()} ${u.rate_type}</span> <span class="text-red-500 text-xs">${u.reason}</span></li>`;
+            });
+            unavHtml += `</ul></div>`;
+            document.getElementById('errorArea').innerHTML = unavHtml;
+        }
+    }
+</script>
+</body>
+</html>

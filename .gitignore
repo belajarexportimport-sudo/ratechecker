@@ -4,3 +4,6 @@
 .venv/
 venv/
 .env
+
+node_modules/
+.wrangler/
