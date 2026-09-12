@@ -1,0 +1,48 @@
+Hasil temuan audit cluade 12 sep26 9.47
+Ditemukan banyak temuan berat sekali lihat. Mari saya verifikasi satu-satu dengan membandingkan langsung ke kode Python asli, dimulai dari yang paling mencurigakan: fungsi calculate() FedEx JS ini kelihatan jauh lebih pendek (78 baris) dari versi Python (481 baris).
+Konfirmasi — ini bukan sekadar bug pembulatan, tapi data yang difabrikasi. Mari saya cek juga sisi UPS dan konfirmasi apakah pyRound() yang sudah divalidasi sebelumnya benar-benar dipakai.
+Sekarang saya jalankan node langsung untuk membuktikan dengan angka nyata — bandingkan output Python (backend asli) vs JS (yang sudah live) untuk skenario yang sama.
+Bukti konkret ditemukan. Untuk pengiriman Jepang 5kg yang identik, hari ini (12 Sep 2026):
+Python (benar): Rp 4.411.000 — Demand Surcharge memang belum berlaku (baru efektif 21 Sep 2026, dan sistem Python menghormati tanggal itu)
+JS (live di production): Rp 4.486.000 — kelebihan tagih Rp 75.000 karena JS mengabaikan tanggal efektif DAN memakai angka Demand Surcharge yang direkayasa/dummy (bukan tabel per-region asli)
+Mari saya buktikan juga gap ODA/OPA dengan kode pos yang saya tahu Tier B:
+Terkonfirmasi — 0 file JS menyebut Oversize/AHS-Dimension/Address Correction/dll. Satu lagi: MINIMUM_BILLED_WEIGHT_KG = 0.5 diterapkan rata ke SEMUA service FedEx termasuk IPF/IEF, padahal seharusnya freight punya minimum 68kg. Mari saya cek apakah minimal formula UPS lain (Surge/FSI/VAT) di luar named-group masih akurat:
+Hasil audit — dan ini serius: JS yang sudah live punya beberapa gap besar
+Saya tidak cuma baca kode, saya jalankan Python asli vs JS yang sudah di-deploy side-by-side untuk kombinasi yang sama persis, dan buktikan dengan angka. Ringkasannya, diurutkan dari yang paling kritis:
+🔴 Kritis #1 — UPS Commercial (A26/B26) named-group override HILANG TOTAL — bug yang sama yang kita perbaiki minggu lalu, muncul lagi
+Jepang, saver, A26, export, 2kg:
+  JS (live sekarang) : Rp 590.100  ❌ (pakai tabel zone 3 biasa)
+  Python (benar)     : Rp 629.400  ✓ (pakai tabel grup "japan, korea, taiwan")
+Ini persis bug yang saya audit & perbaiki di backend Python (selisih -6,7%). calculateBase() di JS dipanggil dengan zone yang sudah diresolve, country tidak pernah dikirim — jadi logic named-group (Jepang/Korea/Taiwan, HK/Filipina/Thailand/Vietnam, Australia, US, Prancis/Jerman/Italia/Belanda, China vs China South) tidak mungkin jalan. Berlaku untuk semua negara volume tinggi di komisi A26/B26.
+🔴 Kritis #2 — FedEx ODA/OPA Surcharge: fungsinya cuma stub return 0
+js
+// Dummy for now to pass compilation
+export function computeOdaOpaCharge(postalCode, weight) {
+    return 0; // Requires ODA dataset mapping
+}
+Bahkan fungsi ini tidak pernah dipanggil di calculator.js — jadi bukan cuma salah, tapi baris surcharge-nya hilang sama sekali dari output. Saya buktikan: pickup di kode pos Tier B (Jakarta 14510) yang seharusnya kena Rp 339.000 OPA Surcharge di Python, di JS tidak muncul apa-apa. Data 67.608 baris kode pos ODA/OPA juga tidak ikut ter-port (oda_opa_data.js = 0 byte).
+🔴 Kritis #3 — FedEx Demand Surcharge: datanya direkayasa, bukan hasil port
+js
+demand_export_parcel: 15000,   // flat, semua negara sama
+demand_import_parcel: 15000,
+Tabel asli Python itu per-region (Asia=3.000, India=1.800, Europe=21.800, US=26.800/kg, dst — 228 negara dipetakan manual). Angka 15000 ini tidak cocok dengan region manapun — murni dummy. Lebih parah lagi: JS juga mengabaikan tanggal efektif (2026-09-21). Saya buktikan hari ini (12 Sep 2026):
+Jepang, IP export, 5kg, hari ini:
+  Python (benar) : Rp 4.411.000  (Demand Surcharge belum berlaku, sesuai tanggal efektif)
+  JS (live)      : Rp 4.486.000  (kelebihan tagih Rp 75.000 — dipungut lebih awal & angkanya pun salah)
+🔴 Kritis #4 — Non-Standard Shipment Fees & Special Handling Fees FedEx: 0% ter-port
+Grep untuk "Oversize", "AHS-Dimension", "Unauthorized Package", "Address Correction", "Residential Delivery", "Signature Required", "Dangerous Goods" di seluruh src/ — nol hasil. Ini ~843 baris logic bisnis (dari nonstandard.py + special_handling.py) yang sama sekali tidak ada di JS.
+🟠 Sedang #5 — Minimum billable weight IPF/IEF (68kg) tidak diterapkan
+js
+export const MINIMUM_BILLED_WEIGHT_KG = 0.5;  // flat, dipakai utk SEMUA service
+Freight (IPF/IEF) seharusnya punya minimum 68kg, bukan 0.5kg — jadi shipment freight kecil akan dihitung jauh di bawah tarif minimum resmi.
+🟡 Rendah tapi terbukti nyata — pyRound() yang sudah divalidasi 4.472 kasus, tidak dipakai
+js-workers/src/core/pyround.js (hasil kerja sesi sebelumnya, sudah cross-check ke Python asli) tidak diimpor sama sekali di src/ yang di-deploy — semua pakai Math.round() mentah. Saya buktikan dampaknya nyata (bukan cuma teori):
+UPS Publish saver Singapura 2kg, FSI 15% (tanpa isu named-group):
+  Python: total = Rp 2.083.451
+  JS    : total = Rp 2.083.450   <- selisih Rp 1
+Base price & tiap komponen surcharge cocok 100% — cuma pembulatan akhir yang beda 1 rupiah. Kecil, tapi ini exact risiko yang sudah diprediksi & "diselesaikan" di sesi audit sebelumnya, lalu solusinya tidak pernah dipasang ke kode yang dideploy.
+Yang sudah BENAR (saya verifikasi, bukan asumsi): UPS Publish base rate, Surge Fee, FSI, VAT formula & urutan perhitungannya cocok ke Python (selain rounding Rp1 di atas). Struktur zone lookup UPS & FedEx dasar juga terlihat solid.
+Mau saya lanjut perbaiki salah satu/beberapa dari temuan ini duluan? Saya sarankan urutan: UPS named-group dulu (paling gampang, tinggal port ulang yang sudah pernah kita buktikan benar) → pyRound wiring (juga sudah ada solusinya tinggal pasang) → baru yang butuh kerja lebih besar (ODA/OPA data + non-standard/special handling FedEx).
+lanjutkan
+Sekarang saya port _get_group_key() ke JS dan sambungkan ke calculator.js UPS:
+Ditemukan lagi masalah lebih dalam — bukan cuma fungsi pembulatannya, tapi urutan/titik pembulatannya juga beda dari Python (Python simpan VAT yang sudah dibulatkan balik ke dict lalu pakai itu untuk total, sementara JS pakai nilai mentah)

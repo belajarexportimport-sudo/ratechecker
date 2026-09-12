@@ -1,132 +1,141 @@
 import { getZone } from './zones.js'
 import { calculateBase } from './rates/index.js'
-import { DIM_DIVISOR, COSTS_MAY_24_2026, SURGE_V3, determineSurgeRegion, validateGeometry } from './rules.js'
+import { pyRound } from '../../core/pyround.js'
+import {
+    DIM_DIVISOR,
+    COSTS_MAY_24_2026,
+    SURGE_V3,
+    determineSurgeRegion,
+    validateGeometry
+} from './rules.js'
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
-    let service = request.service.toLowerCase()
+    let service    = request.service.toLowerCase()
     const isImport = direction === 'import'
 
-    let country = isImport ? request.origin_country : request.destination_country
-    let postalCode = isImport ? request.postal_code_origin : request.postal_code_destination
+    // Country untuk zone lookup
+    const country     = isImport ? request.origin_country      : request.destination_country
+    const postalCode  = isImport ? request.postal_code_origin  : request.postal_code_destination
+    const countryKey  = country.toLowerCase()
 
+    // === STEP 1: Resolve zone ===
     let zone = getZone(country, direction, service, postalCode)
-    
-    // Auto WWEF conversion if weight >= 71 and standard service
-    if (request.weight_kg >= 71 && (service === "saver" || service === "expedited")) {
+
+    // Auto-WWEF jika weight >= 71
+    if (request.weight_kg >= 71 && (service === 'saver' || service === 'expedited')) {
         try {
-            const wwefZone = getZone(country, direction, "wwef", postalCode);
+            const wwefZone = getZone(country, direction, 'wwef', postalCode)
             if (wwefZone !== null) {
-                service = "wwef";
-                zone = wwefZone;
+                service = 'wwef'
+                zone = wwefZone
             }
-        } catch (e) {
-            // keep standard service
-        }
+        } catch (_) { /* tetap pakai service semula */ }
     }
 
-    let length = request.dimensions_cm ? request.dimensions_cm[0] : 0
-    let width = request.dimensions_cm ? request.dimensions_cm[1] : 0
-    let height = request.dimensions_cm ? request.dimensions_cm[2] : 0
-    
-    let dimWeight = 0;
+    // === STEP 2: Chargeable weight ===
+    const length = request.dimensions_cm ? request.dimensions_cm[0] : 0
+    const width  = request.dimensions_cm ? request.dimensions_cm[1] : 0
+    const height = request.dimensions_cm ? request.dimensions_cm[2] : 0
+
+    let dimWeight = 0
     if (length && width && height) {
-        dimWeight = (length * width * height) / DIM_DIVISOR;
+        dimWeight = (length * width * height) / DIM_DIVISOR
     }
-    
+
+    // WWEF minimum 71kg
     let chargeableWeight = Math.max(request.weight_kg, dimWeight)
-    if (service === "wwef") {
+    if (service === 'wwef') {
         chargeableWeight = Math.max(chargeableWeight, 71)
     }
-    
-    let basePrice = calculateBase(request.rate_type, service, direction, zone, chargeableWeight)
+
+    // === STEP 3: Base rate (kirimkan country untuk named-group A26/B26) ===
+    let basePrice = calculateBase(request.rate_type, service, direction, zone, chargeableWeight, country)
     if (basePrice === null) {
-        throw new Error(`Kombinasi direction='${direction}' service='${service}' tidak valid untuk UPS (atau weight out of bounds).`)
+        throw new Error(
+            `Tidak ada rate tersedia: direction='${direction}' service='${service}' ` +
+            `zone='${zone}' weight=${chargeableWeight}kg (UPS)`
+        )
     }
 
+    // === STEP 4: Surcharges ===
     const surcharges = {}
     const geom = validateGeometry(length, width, height)
-    
-    let isAHS = false
-    let isLPS = false
-    let isOMX = false
-    
+
+    let adjustedChargeableWeight = chargeableWeight
+
     if (request.weight_kg > 70 || geom.L > 274 || geom.girth > 400) {
-        isOMX = true
-        isLPS = true
-    } else if (geom.girth > 300) {
-        isLPS = true
-    } else if ((request.weight_kg > 25 && request.weight_kg < 71) || (geom.L > 122 || geom.W > 76)) {
-        isAHS = true
-    }
-    
-    if (isOMX) {
+        // OMX triggers LPS
         surcharges['Over Maximum (OMX)'] = COSTS_MAY_24_2026.OMX
         surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
-        chargeableWeight = Math.max(chargeableWeight, 40)
-    } else if (isLPS) {
+        adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
+    } else if (geom.girth > 300) {
         surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
-        chargeableWeight = Math.max(chargeableWeight, 40)
-    } else if (isAHS) {
+        adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
+    } else if (
+        (request.weight_kg > 25 && request.weight_kg < 71) ||
+        geom.L > 122 || geom.W > 76
+    ) {
         surcharges['Additional Handling (AHS)'] = COSTS_MAY_24_2026.AHS
     }
-    
-    // Brokerage for Import
-    if (isImport && service !== "envelope") {
+
+    // Brokerage (import saja, bukan envelope)
+    if (isImport && service !== 'envelope') {
         surcharges['Brokerage'] = COSTS_MAY_24_2026.BROKERAGE
     }
-    
-    // Surge Fee
-    const region = determineSurgeRegion(country)
+
+    // Surge Fee (SURGE_V3)
+    const region    = determineSurgeRegion(country)
     const surgeDict = isImport ? SURGE_V3.import : SURGE_V3.export
-    const surgeRate = surgeDict[region] || 0
+    const surgeRate = surgeDict[region] ?? 0
     if (surgeRate > 0) {
-        surcharges['Surge Fee'] = surgeRate * Math.ceil(chargeableWeight)
+        surcharges['Surge Fee'] = pyRound(surgeRate * Math.ceil(adjustedChargeableWeight))
     }
 
-    let totalSurcharges = 0
-    for (const v of Object.values(surcharges)) totalSurcharges += v
-    
-    const preFsiAmount = basePrice + totalSurcharges
-    
-    // Fuel Surcharge
+    // === STEP 5: FSI ===
+    let totalSurchargeBeforeFsi = 0
+    for (const v of Object.values(surcharges)) totalSurchargeBeforeFsi += v
+
+    const preFsiTotal = basePrice + totalSurchargeBeforeFsi
     let fsiAmount = 0
-    if (request.extra && request.extra.fsi_pct) {
-        // UPS FSI calculation excludes Brokerage
-        let fsiBase = preFsiAmount
-        if (surcharges['Brokerage']) fsiBase -= surcharges['Brokerage']
-        
-        fsiAmount = fsiBase * (request.extra.fsi_pct / 100)
-        surcharges[`Fuel Surcharge (${request.extra.fsi_pct}%)`] = Math.round(fsiAmount)
+    const fsiPct = request.extra?.fsi_pct
+    if (fsiPct) {
+        // UPS: FSI base = semua kecuali Brokerage
+        let fsiBasis = preFsiTotal
+        if (surcharges['Brokerage']) fsiBasis -= surcharges['Brokerage']
+        fsiAmount = pyRound(fsiBasis * (fsiPct / 100))
+        surcharges[`Fuel Surcharge (${fsiPct}%)`] = fsiAmount
     }
-    
-    // VAT
-    const preVatAmount = preFsiAmount + fsiAmount
-    const vatAmount = preVatAmount * 0.011 // 1.1%
-    surcharges['VAT (1.1%)'] = Math.round(vatAmount)
-    
-    let total = preVatAmount + vatAmount
-    
+
+    // === STEP 6: VAT 1.1% ===
+    const preVatTotal = preFsiTotal + fsiAmount
+    const vatAmount = pyRound(preVatTotal * 0.011)
+    surcharges['VAT (1.1%)'] = vatAmount
+
+    // === STEP 7: Discount (applied to base only) ===
     let discount = 0
     if (request.discount_pct) {
-        discount = basePrice * (request.discount_pct / 100)
-        total -= discount
+        discount = pyRound(basePrice * (request.discount_pct / 100))
     }
+
+    const total = pyRound(preVatTotal + vatAmount - discount)
 
     return {
         carrier: 'ups',
         rate_type: request.rate_type,
         service: service,
         zone: zone,
-        base_price: Math.round(basePrice),
+        base_price: pyRound(basePrice),
         surcharges: surcharges,
-        discount: Math.round(discount),
-        total: Math.round(total),
+        discount: discount,
+        total: total,
         currency: 'IDR',
         notes: [],
         extra: {
             chargeable_weight: chargeableWeight,
-            dim_weight: dimWeight
+            dim_weight: dimWeight,
+            country: country,
+            surge_region: region
         }
     }
 }

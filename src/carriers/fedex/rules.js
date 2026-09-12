@@ -1,5 +1,8 @@
 export const DIM_DIVISOR = 5000;
 export const MINIMUM_BILLED_WEIGHT_KG = 0.5;
+// PERBAIKAN #5: Freight (IPF/IEF) minimum billable weight = 68kg
+export const MINIMUM_FREIGHT_WEIGHT_KG = 68.0;
+
 
 export const FREIGHT_SERVICES = ["IPF", "IEF"];
 export const PARCEL_SERVICES = ["IP", "IE"];
