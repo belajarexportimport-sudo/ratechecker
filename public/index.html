@@ -106,9 +106,15 @@
 </div>
 
 <script>
-    const API_URL = (window.location.origin && window.location.origin !== 'null' && !window.location.protocol.startsWith('file'))
-        ? `${window.location.origin}/api/rates/compare`
-        : 'https://multi-carrier-rate-engine.belajarexportimport.workers.dev/api/rates/compare';
+    // Konfigurasi Smart API_URL Resolver
+    const WORKER_API = 'https://multi-carrier-rate-engine.belajarexportimport.workers.dev/api/rates/compare';
+    
+    let API_URL = WORKER_API;
+    if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
+        API_URL = 'http://127.0.0.1:8787/api/rates/compare';
+    } else if (window.location.hostname.endsWith('workers.dev')) {
+        API_URL = '/api/rates/compare';
+    }
 
     const form = document.getElementById('calcForm');
     const directionEl = document.getElementById('direction');
