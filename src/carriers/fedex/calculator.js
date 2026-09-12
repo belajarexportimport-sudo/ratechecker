@@ -14,7 +14,8 @@ import {
     calculateDimWeight,
     MINIMUM_BILLED_WEIGHT_KG,
     MINIMUM_FREIGHT_WEIGHT_KG,
-    isFreight
+    isFreight,
+    roundUp1000
 } from './rules.js'
 
 // =============================================================================
@@ -318,7 +319,14 @@ export function calculate(request) {
     }
 
     // Fuel Surcharge
-    const fsiPct = request.extra?.fsi_pct
+    // Fuel Surcharge -- PENTING: field Python asli utk FedEx adalah
+    // `fuel_surcharge_pct` (BUKAN `fsi_pct` -- itu nama field punya UPS).
+    // Bug ditemukan saat audit 9 Sep 2026: kalau caller kirim nama field yang
+    // benar sesuai kontrak Python, versi lama diam-diam mengabaikannya
+    // (fuel surcharge tidak pernah dihitung). Terima KEDUA nama field demi
+    // kompatibilitas mundur dgn caller yang mungkin sudah terlanjur pakai
+    // fsi_pct, tapi prioritaskan nama field yang benar.
+    const fsiPct = request.extra?.fuel_surcharge_pct ?? request.extra?.fsi_pct
     if (fsiPct) {
         let fsiBasis = discountedBase
         for (const v of Object.values(surcharges)) fsiBasis += v
@@ -329,7 +337,17 @@ export function calculate(request) {
     let totalSurcharges = 0
     for (const v of Object.values(surcharges)) totalSurcharges += v
 
-    const total = pyRound(discountedBase + totalSurcharges)
+    // Total -- PENTING (lihat backend/carriers/fedex/calculator.py &
+    // rates/common.py round_up_1000()): FedEx TIDAK memakai round-to-nearest
+    // biasa untuk total. `base_price`/tiap `surcharges`/`discount` boleh
+    // pecahan (raw), tapi `total` HARUS dibulatkan KE ATAS ke kelipatan
+    // Rp1.000 terdekat -- sesuai kebijakan invoice FedEx yang tertulis
+    // eksplisit di surcharge sheet: "The transportation charge stated in
+    // your payment invoice will be rounded up to the nearest IDR1000".
+    // Regresi ditemukan 9 Sep 2026: sempat balik pakai pyRound() (nearest-
+    // integer) lagi setelah calculator.js ditulis ulang dgn fitur lengkap
+    // (ODA/OPA, non-standard fees, dll) -- dipasang ulang di sini.
+    const total = roundUp1000(discountedBase + totalSurcharges)
 
     return {
         carrier: 'fedex',
