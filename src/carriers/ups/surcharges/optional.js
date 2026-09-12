@@ -74,6 +74,10 @@ export const PROHIBITED_ITEM_FEE_PER_PKG = 4440000            // hal.8
 export const PAPER_COMMERCIAL_INVOICE_FEE = 370000            // maksimum per shipment - hal.8
 export const PRE_RELEASE_NOTIFICATION_FEE = 370000            // hal.8
 
+// --- Additional Insurance ---
+export const ADDITIONAL_INSURANCE_THRESHOLD_IDR = 1480000     // hal.5
+export const ADDITIONAL_INSURANCE_PER_INCREMENT_FEE = 32710   // per kelipatan threshold di atas
+
 /**
  * Hitung semua surcharge opsional (checkbox) UPS yang di-tick user.
  *
@@ -122,6 +126,7 @@ export function computeOptionalUpsSurcharges(params, opts = {}) {
         pre_release_notification = false,
         disbursement_fee = false,
         duty_tax_amount = 0,               // dipakai kalau disbursement_fee = true
+        declared_value_idr = 0,            // nilai barang -> dipakai utk Additional Insurance
     } = opts
 
     const isFreight = service === 'wwef'
@@ -131,13 +136,25 @@ export function computeOptionalUpsSurcharges(params, opts = {}) {
     const addFee = (label, amount) => components.push({ label, amount })
 
     // --- PEB / PIB ---
+    // PENTING: nama "PEB"/"PIB" di sini cuma label pendekatan yg umum
+    // dipakai forwarder Indonesia -- surcharge ASLI di UPS guide (hal.6-7)
+    // BUKAN dikenakan rutin di setiap ekspor/impor. Syaratnya SALAH SATU:
+    // (a) barang termasuk strategic/controlled/regulated goods, ATAU
+    // (b) shipper/consignee MEMINTA formal declaration padahal secara
+    // hukum tidak wajib. PIB/PEB rutin (yg wajib di setiap shipment)
+    // sudah masuk "Customs Brokerage Charges" (gratis s/d 5 tariff line)
+    // & "Brokerage Admin Fee (BAF)" IDR118.647 yg SUDAH otomatis
+    // dikenakan ke semua impor dutiable (lihat calculator.js -> surcharges['Brokerage']).
+    // Jangan asumsikan checkbox ini = "PIB wajib tiap impor".
     if (export_declaration) {
-        if (isImport) notes.push('Export Declaration Surcharge (PEB) biasanya berlaku utk shipment EKSPOR, tapi tetap dibebankan sesuai pilihan user.')
-        addFee('Export Declaration Surcharge (PEB)', EXPORT_DECLARATION_FEE)
+        if (isImport) notes.push('Export Declaration Surcharge (mirip PEB) biasanya berlaku utk shipment EKSPOR, tapi tetap dibebankan sesuai pilihan user.')
+        notes.push('Export Declaration Surcharge HANYA berlaku kalau barang termasuk strategic/controlled/regulated goods, ATAU shipper/consignee minta formal declaration walau tidak wajib -- BUKAN biaya rutin di setiap ekspor.')
+        addFee('Export Declaration Surcharge (mirip PEB)', EXPORT_DECLARATION_FEE)
     }
     if (import_declaration) {
-        if (!isImport) notes.push('Import Declaration Surcharge (PIB) biasanya berlaku utk shipment IMPOR, tapi tetap dibebankan sesuai pilihan user.')
-        addFee('Import Declaration Surcharge (PIB)', IMPORT_DECLARATION_FEE)
+        if (!isImport) notes.push('Import Declaration Surcharge (mirip PIB) biasanya berlaku utk shipment IMPOR, tapi tetap dibebankan sesuai pilihan user.')
+        notes.push('Import Declaration Surcharge HANYA berlaku kalau barang termasuk strategic/controlled/regulated goods, ATAU shipper/consignee minta formal declaration walau tidak wajib -- BUKAN pengganti PIB rutin (PIB rutin & Brokerage Admin Fee/BAF sudah otomatis masuk di baris "Brokerage").')
+        addFee('Import Declaration Surcharge (mirip PIB)', IMPORT_DECLARATION_FEE)
     }
 
     // --- Saturday Delivery ---
@@ -218,6 +235,20 @@ export function computeOptionalUpsSurcharges(params, opts = {}) {
     if (prohibited_item) addFee('Prohibited Item Fee', PROHIBITED_ITEM_FEE_PER_PKG * Math.max(1, packageCount))
     if (paper_commercial_invoice) addFee('Paper Commercial Invoice Surcharge', PAPER_COMMERCIAL_INVOICE_FEE)
     if (pre_release_notification) addFee('Pre-Release Notification Surcharge', PRE_RELEASE_NOTIFICATION_FEE)
+
+    // --- Additional Insurance ---
+    // "For each shipment over IDR1.480.000, you may purchase additional
+    // coverage against loss or damage at IDR32.710 for each additional
+    // IDR1.480.000 or fraction thereof." -> nilai barang s/d threshold
+    // dianggap sudah ter-cover standar (gratis), kelebihannya dikenakan
+    // per kelipatan (dibulatkan ke atas).
+    if (declared_value_idr > ADDITIONAL_INSURANCE_THRESHOLD_IDR) {
+        const excess = declared_value_idr - ADDITIONAL_INSURANCE_THRESHOLD_IDR
+        const increments = Math.ceil(excess / ADDITIONAL_INSURANCE_THRESHOLD_IDR)
+        addFee('Additional Insurance', increments * ADDITIONAL_INSURANCE_PER_INCREMENT_FEE)
+    } else if (declared_value_idr > 0) {
+        notes.push(`Nilai barang (IDR${declared_value_idr.toLocaleString('id-ID')}) belum melebihi ambang batas Additional Insurance UPS (IDR${ADDITIONAL_INSURANCE_THRESHOLD_IDR.toLocaleString('id-ID')}) -- tidak ada surcharge tambahan.`)
+    }
 
     const total = components.reduce((sum, c) => sum + c.amount, 0)
     return { components, total_charge: total, notes }
