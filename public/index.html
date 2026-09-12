@@ -178,6 +178,82 @@
                         </details>
                     </div>
 
+                    <!-- Est. Bea Masuk & Pajak Impor (Duty & Tax) -- KHUSUS IMPOR -->
+                    <div id="dutyTaxSection" class="hidden">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-slate-700">Est. Bea Masuk & Pajak Impor</label>
+                            <label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                                <input type="checkbox" id="dutyEnable" class="rounded border-slate-300">
+                                Aktifkan
+                            </label>
+                        </div>
+                        <p class="text-xs text-slate-400 mb-2">Estimasi awal Bea Masuk/PPN/PPh -- rumus dari kalkulator UPS milik user (Handling &amp; Disbursement Fee memakai skema UPS; FedEx menyusul). Nilai final tetap ditentukan Bea Cukai saat barang tiba.</p>
+
+                        <div id="dutyInputs" class="hidden space-y-3 border border-slate-200 rounded-lg p-3">
+
+                            <!-- Tipe Importir -->
+                            <div>
+                                <label class="block text-xs text-slate-500 mb-0.5">Tipe Importir</label>
+                                <select id="dutyImporterType" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                    <option value="company" selected>Company (Perusahaan)</option>
+                                    <option value="personal">Personal (Pribadi)</option>
+                                </select>
+                            </div>
+
+                            <!-- Item rows: HS Code, BM%, Value -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-xs text-slate-500">Item (HS Code &amp; Nilai FOB)
+                                        <a href="https://insw.go.id/intr" target="_blank" class="text-blue-600 underline">Cek INSW</a>
+                                    </label>
+                                    <button type="button" id="btnAddDutyItem" class="text-xs font-medium text-blue-600 hover:text-blue-800">+ Tambah Item</button>
+                                </div>
+                                <div id="dutyItemsContainer" class="space-y-2"></div>
+                            </div>
+
+                            <!-- Insurance & Kurs -->
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-0.5">Insurance (USD)</label>
+                                    <input type="number" id="dutyInsuranceUsd" step="0.01" placeholder="0" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-0.5">Kurs Pajak (IDR) <a href="https://fiskal.kemenkeu.go.id/informasi-publik/kurs-pajak" target="_blank" class="text-blue-600 underline">cek</a></label>
+                                    <input type="number" id="dutyKurs" step="1" value="16500" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                </div>
+                            </div>
+
+                            <!-- NPWP/API -->
+                            <div>
+                                <label class="block text-xs text-slate-500 mb-0.5">NPWP / API?</label>
+                                <select id="dutyNpwp" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                    <option value="api">Punya API (PPh 2,5%)</option>
+                                    <option value="yes" selected>Punya NPWP (PPh 7,5%)</option>
+                                    <option value="no">Non-NPWP (PPh 15%)</option>
+                                </select>
+                            </div>
+
+                            <!-- Handling -->
+                            <div class="pt-2 border-t border-dashed border-slate-200">
+                                <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer mb-1.5">
+                                    <input type="checkbox" id="dutyEnableHandling" class="rounded border-slate-300">
+                                    Hitung Import Handling? (Handling Fee, Disbursement Fee, Doc Fee, Sewa Gudang)
+                                </label>
+                                <div id="dutyHandlingInputs" class="hidden space-y-2 pl-1">
+                                    <div>
+                                        <label class="block text-xs text-slate-500 mb-0.5">Doc Fee (IDR)</label>
+                                        <input type="number" id="dutyDocFee" step="1000" value="50000" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-500 mb-0.5">Hari di Gudang <span class="text-slate-400">(saran: 3 hari De Minimis/Flat, 5 hari MFN)</span></label>
+                                        <input type="number" id="dutyWarehouseDays" step="1" min="0" placeholder="0" class="w-full rounded-lg border-slate-300 border p-2 text-sm">
+                                    </div>
+                                    <p class="text-xs text-slate-400">Handling Fee (min. IDR200rb/2,5%) &amp; Disbursement Fee (min. IDR94.159/5,9%) dihitung otomatis dari total pajak -- muncul di hasil.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="pt-4">
                         <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-center items-center">
                             <span id="btnText">Hitung & Bandingkan</span>
@@ -380,7 +456,170 @@
         const isExport = e.target.value === 'export';
         lblCountry.textContent = isExport ? 'Negara Tujuan' : 'Negara Asal';
         lblPostal.textContent = isExport ? 'Kode Pos Tujuan' : 'Kode Pos Asal';
+        updateDutyTaxSectionVisibility();
     });
+
+    // === Duty & Tax (Est. Bea Masuk & Pajak Impor) -- KHUSUS IMPOR ===
+    const dutyTaxSection = document.getElementById('dutyTaxSection');
+    const dutyEnableEl = document.getElementById('dutyEnable');
+    const dutyInputsEl = document.getElementById('dutyInputs');
+    const dutyEnableHandlingEl = document.getElementById('dutyEnableHandling');
+    const dutyHandlingInputsEl = document.getElementById('dutyHandlingInputs');
+    const dutyImporterTypeEl = document.getElementById('dutyImporterType');
+    const dutyNpwpEl = document.getElementById('dutyNpwp');
+    const dutyItemsContainer = document.getElementById('dutyItemsContainer');
+
+    function updateDutyTaxSectionVisibility() {
+        const isImport = directionEl.value === 'import';
+        dutyTaxSection.classList.toggle('hidden', !isImport);
+        if (!isImport && dutyEnableEl.checked) {
+            dutyEnableEl.checked = false;
+            dutyInputsEl.classList.add('hidden');
+        }
+    }
+    updateDutyTaxSectionVisibility();
+
+    dutyEnableEl.addEventListener('change', () => {
+        dutyInputsEl.classList.toggle('hidden', !dutyEnableEl.checked);
+    });
+    dutyEnableHandlingEl.addEventListener('change', () => {
+        dutyHandlingInputsEl.classList.toggle('hidden', !dutyEnableHandlingEl.checked);
+    });
+    dutyImporterTypeEl.addEventListener('change', () => {
+        const apiOption = dutyNpwpEl.querySelector('option[value="api"]');
+        if (dutyImporterTypeEl.value === 'personal') {
+            apiOption.style.display = 'none';
+            if (dutyNpwpEl.value === 'api') dutyNpwpEl.value = 'yes';
+        } else {
+            apiOption.style.display = '';
+        }
+    });
+
+    // Item rows (HS Code, BM%, Currency, Nilai FOB) -- pola sama spt Collie
+    let dutyItemCount = 0;
+    function dutyItemRowHtml(n) {
+        return `
+            <div class="duty-item-row border border-slate-200 rounded-lg p-2" data-item="${n}">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-semibold text-slate-500">Item ${n}</span>
+                    ${n > 1 ? `<button type="button" class="btnRemoveDutyItem text-xs text-red-500 hover:text-red-700">Hapus</button>` : ''}
+                </div>
+                <input type="text" class="dutyItemHs w-full rounded-lg border-slate-300 border p-2 text-sm mb-1.5" placeholder="HS Code (mis. 6109.10) - opsional">
+                <div class="grid grid-cols-3 gap-1.5">
+                    <input type="number" class="dutyItemBm rounded-lg border-slate-300 border p-2 text-sm" placeholder="BM %" step="0.1" min="0" value="0">
+                    <select class="dutyItemCurrency rounded-lg border-slate-300 border p-2 text-sm">
+                        <option value="USD">USD</option>
+                        <option value="IDR">IDR</option>
+                    </select>
+                    <input type="number" class="dutyItemValue rounded-lg border-slate-300 border p-2 text-sm" placeholder="Nilai FOB" step="0.01" min="0">
+                </div>
+            </div>`;
+    }
+    function addDutyItemRow() {
+        dutyItemCount += 1;
+        dutyItemsContainer.insertAdjacentHTML('beforeend', dutyItemRowHtml(dutyItemCount));
+        renumberDutyItemRows();
+    }
+    function renumberDutyItemRows() {
+        const rows = dutyItemsContainer.querySelectorAll('.duty-item-row');
+        dutyItemCount = rows.length;
+        rows.forEach((row, i) => {
+            const n = i + 1;
+            row.dataset.item = n;
+            row.querySelector('span').textContent = `Item ${n}`;
+        });
+    }
+    dutyItemsContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btnRemoveDutyItem')) {
+            e.target.closest('.duty-item-row').remove();
+            renumberDutyItemRows();
+        }
+    });
+    document.getElementById('btnAddDutyItem').addEventListener('click', addDutyItemRow);
+    addDutyItemRow(); // Item 1 default
+
+    function getDutyItemsData() {
+        return Array.from(dutyItemsContainer.querySelectorAll('.duty-item-row')).map(row => ({
+            hs_code: row.querySelector('.dutyItemHs').value.trim(),
+            bm_rate_pct: parseFloat(row.querySelector('.dutyItemBm').value) || 0,
+            currency: row.querySelector('.dutyItemCurrency').value,
+            value: parseFloat(row.querySelector('.dutyItemValue').value) || 0,
+        })).filter(it => it.value > 0);
+    }
+
+    // Panggil /api/duty-tax/calculate SEKALI PER KARTU HASIL (freight_idr =
+    // TOTAL akhir kartu itu, weight_kg = chargeable weight kartu itu) --
+    // supaya proration CIF & storage fee akurat per carrier/rate_type,
+    // bukan dipukul rata pakai 1 angka freight utk semua kartu.
+    async function renderDutyTaxForResults(results) {
+        const items = getDutyItemsData();
+        if (items.length === 0) return;
+
+        const insuranceUsd = parseFloat(document.getElementById('dutyInsuranceUsd').value) || 0;
+        const kurs = parseFloat(document.getElementById('dutyKurs').value) || 16500;
+        const npwp = dutyNpwpEl.value;
+        const handlingEnabled = dutyEnableHandlingEl.checked;
+        const docFee = parseFloat(document.getElementById('dutyDocFee').value) || 0;
+        const warehouseDays = parseFloat(document.getElementById('dutyWarehouseDays').value) || 0;
+        const dutyApiUrl = API_URL.replace('/api/rates/compare', '/api/duty-tax/calculate');
+
+        await Promise.all(results.map(async (res) => {
+            const el = document.getElementById(`duty-${res.carrier}-${res.rate_type}`);
+            if (!el) return;
+            try {
+                const resp = await fetch(dutyApiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        items,
+                        opts: {
+                            freight_idr: res.total,
+                            insurance_usd: insuranceUsd,
+                            kurs_idr: kurs,
+                            npwp_status: npwp,
+                            handling: {
+                                enabled: handlingEnabled,
+                                doc_fee_idr: docFee,
+                                warehouse_days: warehouseDays,
+                                weight_kg: res.extra?.chargeable_weight || 0,
+                            }
+                        }
+                    })
+                });
+                const dt = await resp.json();
+                if (dt.error) {
+                    el.innerHTML = `<p class="text-xs text-red-500 mt-2">${dt.error}</p>`;
+                    return;
+                }
+                const grandTotal = res.total + dt.total_tax_idr;
+                let handlingHtml = '';
+                if (dt.handling && dt.handling.enabled) {
+                    handlingHtml = `
+                        <div class="flex justify-between text-xs text-slate-500"><span>+ Handling Fee</span><span>${formatMoney(dt.handling.handling_fee_idr)}</span></div>
+                        <div class="flex justify-between text-xs text-slate-500"><span>+ Disbursement Fee</span><span>${formatMoney(dt.handling.disbursement_fee_idr)}</span></div>
+                        <div class="flex justify-between text-xs text-slate-500"><span>+ Doc Fee</span><span>${formatMoney(dt.handling.doc_fee_idr)}</span></div>
+                        ${dt.handling.storage_fee_idr > 0 ? `<div class="flex justify-between text-xs text-slate-500"><span>+ Sewa Gudang (${dt.handling.warehouse_days} hari)</span><span>${formatMoney(dt.handling.storage_fee_idr)}</span></div>` : ''}
+                    `;
+                } else if (dt.handling) {
+                    handlingHtml = `<p class="text-xs text-slate-400 italic mt-1">Saran: Handling Fee ${formatMoney(dt.handling.handling_fee_idr)}, Disbursement Fee ${formatMoney(dt.handling.disbursement_fee_idr)} (belum termasuk total -- centang "Hitung Import Handling")</p>`;
+                }
+                el.innerHTML = `
+                    <div class="pt-2 mt-2 border-t border-dashed border-amber-300">
+                        <p class="text-xs font-semibold text-amber-700 mb-1">Est. Bea Masuk & Pajak Impor (${dt.tier_label})</p>
+                        <div class="flex justify-between text-xs text-slate-500"><span>Nilai Pabean (CIF)</span><span>${formatMoney(dt.cif_idr)}</span></div>
+                        <div class="flex justify-between text-xs text-slate-500"><span>Bea Masuk</span><span>${formatMoney(dt.bea_masuk_idr)}</span></div>
+                        <div class="flex justify-between text-xs text-slate-500"><span>PPN (11%)</span><span>${formatMoney(dt.ppn_idr)}</span></div>
+                        <div class="flex justify-between text-xs text-slate-500"><span>PPh Impor</span><span>${formatMoney(dt.pph_idr)}</span></div>
+                        ${handlingHtml}
+                        <div class="flex justify-between text-xs font-semibold text-amber-700 pt-1"><span>Total Pajak (+Handling)</span><span>${formatMoney(dt.total_tax_idr)}</span></div>
+                        <div class="flex justify-between text-sm font-bold text-slate-800 pt-1 mt-1 border-t border-amber-200"><span>GRAND TOTAL + Duty/Tax</span><span>${formatMoney(grandTotal)}</span></div>
+                    </div>
+                `;
+            } catch (err) {
+                el.innerHTML = `<p class="text-xs text-red-500 mt-2">Gagal hitung duty/tax: ${err.message}</p>`;
+            }
+        }));
+    }
 
     const formatMoney = (amount) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
@@ -562,7 +801,11 @@
             if (!response.ok) throw new Error('API Error: ' + response.statusText);
             const data = await response.json();
             renderResults(data, shipDate, upsellPct);
-            
+
+            if (dutyEnableEl.checked && directionEl.value === 'import' && data.results && data.results.length > 0) {
+                await renderDutyTaxForResults(data.results);
+            }
+
         } catch (error) {
             document.getElementById('errorArea').innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">Gagal terhubung ke API. Pastikan Worker menyala (npx wrangler dev).<br>Error: ${error.message}</div>`;
         } finally {
@@ -636,6 +879,7 @@
                             <span class="font-bold text-lg text-blue-700">${formatMoney(totalValue)}</span>
                         </div>
                         ${upsellHtml}
+                        <div id="duty-${res.carrier}-${res.rate_type}"></div>
                     </div>
                 </div>
             `;
