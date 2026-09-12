@@ -23,6 +23,7 @@ from backend.core.schemas import RateRequest, RateResult
 from backend.carriers.fedex.rates import calculate_base, FedExRateError
 from backend.carriers.fedex.surcharges.oda_opa import ODAOPALookup
 from backend.carriers.fedex.surcharges.core import compute_oda_opa_charge, compute_demand_surcharge
+from backend.carriers.fedex.surcharges.insurance import compute_insurance_surcharge as compute_fedex_insurance
 import backend.carriers.fedex.surcharges.nonstandard as nonstandard_fees
 import backend.carriers.fedex.surcharges.special_handling as special_handling_fees
 from backend.carriers.fedex.rates.common import round_up_1000
@@ -54,6 +55,7 @@ def _calculate_raw(
     markup_pct=None,
     rate_type="publish",
     demand_surcharge_as_of_date=None,
+    declared_value_idr=None,
 ):
     """
     Logic IDENTIK dengan calculator.py lama.
@@ -304,6 +306,13 @@ def _calculate_raw(
                 "amount": tpb_charge,
             })
 
+    # ---- Insurance / Declared Value ----
+    if declared_value_idr and declared_value_idr > 0:
+        ins_detail = compute_fedex_insurance(declared_value_idr, billed_weight)
+        if ins_detail["fee"] > 0:
+            components.append({"label": "Insurance / Declared Value", "amount": ins_detail["fee"]})
+        notes.append(ins_detail["note"])
+
     # ---- Fuel Surcharge ----
     fuel_detail = None
     if fuel_surcharge_pct is not None:
@@ -424,6 +433,7 @@ def calculate(request: RateRequest) -> RateResult:
         fuel_surcharge_pct=extra.get("fuel_surcharge_pct"),
         apply_demand_surcharge=extra.get("apply_demand_surcharge", True),
         demand_surcharge_as_of_date=extra.get("demand_surcharge_as_of_date"),
+        declared_value_idr=extra.get("declared_value_idr"),
         apply_oda_opa=extra.get("apply_oda_opa", True),
         apply_minimum=extra.get("apply_minimum", True),
         round_invoice=extra.get("round_invoice", True),

@@ -37,6 +37,7 @@ from backend.carriers.ups.rules import (
     AHS_COST, LPS_COST, OMX_COST,
 )
 from backend.carriers.ups.rates.publish import lookup_rate, RATES
+from backend.carriers.ups.surcharges.insurance import compute_insurance_surcharge as compute_ups_insurance
 from backend.core.errors import RateEngineError
 
 
@@ -330,6 +331,13 @@ def calculate(request: RateRequest) -> RateResult:
         surcharges["IPF"] = OPTIONAL_COSTS["ipf"]
     if optional.get("paper_invoice"):
         surcharges["Paper Invoice"] = OPTIONAL_COSTS["paper_invoice"]
+
+    declared_value_idr = optional.get("declared_value_idr") or 0
+    if declared_value_idr > 0:
+        ins = compute_ups_insurance(declared_value_idr)
+        if ins["fee"] > 0:
+            surcharges["Insurance / Declared Value"] = ins["fee"]
+        notes.append(ins["note"])
 
     # ── 10. FSI (Fuel Surcharge Index) ────────────────────────────────────
     fsi_pct = extra.get("fsi_pct") or 0.0

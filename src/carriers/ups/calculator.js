@@ -13,6 +13,7 @@ import {
     packagingTriggersAHS
 } from './rules.js'
 import { computeOptionalSurcharges } from './surcharges/optional.js'
+import { computeInsuranceSurcharge } from './surcharges/insurance.js'
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
@@ -174,6 +175,17 @@ export function calculate(request) {
         surcharges[c.label] = pyRound(c.amount)
     })
     const notes = [...optResult.notes]
+
+    // Insurance / Declared Value -- lihat surcharges/insurance.js. Terima
+    // dari extra.declared_value_idr (dipakai UI ini) ATAU
+    // special_handling.declared_value_idr (kalau caller API pakai konvensi
+    // itu), yang manapun diisi.
+    const declaredValueIdr = request.extra?.declared_value_idr ?? request.special_handling?.declared_value_idr
+    if (declaredValueIdr && declaredValueIdr > 0) {
+        const ins = computeInsuranceSurcharge(declaredValueIdr)
+        if (ins.fee > 0) surcharges['Insurance / Declared Value'] = pyRound(ins.fee)
+        notes.push(ins.note)
+    }
 
     // === STEP 5: FSI ===
     let totalSurchargeBeforeFsi = 0

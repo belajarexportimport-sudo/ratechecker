@@ -10,6 +10,7 @@ import {
     evaluatePackagesForServiceSwitch,
 } from './surcharges/nonstandard.js'
 import { computeSpecialHandling } from './surcharges/special_handling.js'
+import { computeInsuranceSurcharge } from './surcharges/insurance.js'
 import {
     calculateDimWeight,
     MINIMUM_BILLED_WEIGHT_KG,
@@ -323,6 +324,17 @@ export function calculate(request) {
     })
     if (shResult.notes && shResult.notes.length > 0) {
         notes.push(...shResult.notes)
+    }
+
+    // Insurance / Declared Value -- lihat surcharges/insurance.js (baru,
+    // sebelumnya belum ada sama sekali utk FedEx). Terima dari
+    // extra.declared_value_idr (dipakai UI ini) ATAU
+    // special_handling.declared_value_idr.
+    const declaredValueIdr = request.extra?.declared_value_idr ?? request.special_handling?.declared_value_idr
+    if (declaredValueIdr && declaredValueIdr > 0) {
+        const ins = computeInsuranceSurcharge(declaredValueIdr, chargeableWeight)
+        if (ins.fee > 0) surcharges['Insurance / Declared Value'] = pyRound(ins.fee)
+        notes.push(ins.note)
     }
 
     // Fuel Surcharge
