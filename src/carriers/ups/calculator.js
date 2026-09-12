@@ -67,12 +67,12 @@ export function calculate(request) {
 
     let adjustedChargeableWeight = chargeableWeight
 
-    if (request.weight_kg > 70 || geom.L > 274 || geom.girth > 400) {
+    if (request.weight_kg > 70 || geom.L > 274 || geom.length_plus_girth > 400) {
         // OMX triggers LPS
         surcharges['Over Maximum (OMX)'] = COSTS_MAY_24_2026.OMX
         surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
         adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
-    } else if (geom.girth > 300) {
+    } else if (geom.length_plus_girth > 300) {
         surcharges['Large Package Surcharge (LPS)'] = COSTS_MAY_24_2026.LPS
         adjustedChargeableWeight = Math.max(adjustedChargeableWeight, 40)
     } else if (

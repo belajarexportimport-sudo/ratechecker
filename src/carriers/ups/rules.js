@@ -61,10 +61,10 @@ export function determineSurgeRegion(countryName) {
 }
 
 export function validateGeometry(length, width, height) {
-    const dims = [length, width, height].sort((a,b)=>b-a);
-    const L = dims[0];
-    const W = dims[1];
-    const H = dims[2];
-    const girth = L + (2 * W) + (2 * H);
-    return { L, W, H, girth };
+    const L = length;
+    const W = width;
+    const H = height;
+    const girth = (2 * W) + (2 * H);
+    const length_plus_girth = L + girth;
+    return { L, W, H, girth, length_plus_girth };
 }
