@@ -1,257 +1,195 @@
 /**
- * UPS Optional / "Tickable" Surcharges (Indonesia)
- * =================================================
- * Sumber: 2026 UPS Rate and Service Guide - Indonesia (efektif 7 Jun 2026),
- * halaman 4-8 ("Services with Additional Charges" & "Other Additional Charges").
+ * UPS Layanan Tambahan / Surcharge Opsional (manual tick)
+ * ========================================================
+ * Sumber: "2026 UPS Rate and Service Guide Indonesia" (effective 7 Jun 2026),
+ * halaman 4-8 ("Services with Additional Charges" & "Other Additional
+ * Charges"). Semua nominal di bawah dikutip PERSIS dari PDF itu -- bukan
+ * estimasi.
  *
- * Semua surcharge di file ini BUKAN dihitung otomatis oleh sistem UPS
- * berdasarkan berat/dimensi (beda dgn AHS/LPS/OMX/Brokerage/IPF/Surge Fee
- * yang sudah ada di rules.js & calculator.js) -- surcharge2 ini baru
- * berlaku KALAU pengirim benar2 memilih/memicu layanan tsb (mis. minta
- * PEB/formal declaration, minta Saturday Delivery, dsb). Makanya di UI
- * dibuat sbg checkbox yg "tinggal di-tick" oleh user, bukan dihitung
- * silent oleh engine.
+ * UPDATE: Extended Area (EAS) & Remote Area (RAS) SEKARANG OTOMATIS
+ * berdasarkan kode pos/kota, pakai data resmi UPS "ea-surcharge-en-GLOBAL
+ * efektif 7 Juni 2026.xlsx" (lihat eas_ras_data.js & eas_ras_lookup.js,
+ * hasil ekstrak dari calculator-ups.zip yang user lampirkan -- proyek
+ * kalkulator UPS lain milik user sendiri yang sudah lebih dulu
+ * mem-parsing xlsx ini). Checkbox manual TETAP ada sbg fallback utk
+ * negara yang tidak tercakup data (data cuma tercakup ~86 negara --
+ * lihat komentar di eas_ras_data.js).
  *
- * Catatan umum:
- * - Semua angka exclusive PPN 1.1% (VAT dikenakan di calculator.js
- *   spt surcharge lain, setelah semua komponen di sini dijumlah).
- * - "per shipment" diasumsikan 1x per perhitungan (kalkulator ini
- *   memodelkan 1 shipment per submit form), KECUALI disebutkan
- *   eksplisit "per package"/"per pallet" -> dikalikan packageCount.
+ * Pola & penamaan field disamakan dgn special_handling.js FedEx supaya
+ * caller (calculator.js) konsisten, TAPI ini modul terpisah -- kriteria
+ * & nominal UPS beda dari FedEx, tidak dipaksa disatukan.
+ *
+ * BELUM dimasukkan (sengaja, di luar scope "tinggal tick" / bukan opsi yang
+ * dipilih shipper sebelum kirim, atau perlu field lain yang belum ada di
+ * schema, mis. declared value):
+ * - Additional Insurance (butuh input nilai barang/declared value)
+ * - Undeliverable Package Return Charge, Bill Receiver/Freight Collect
+ *   Refusal Fee, Look-up Surcharge, Rebill Fee, Prohibited Item Fee,
+ *   Unlawful Drug Fee, Return to Shipper (semua fee EXCEPTION/pasca-kejadian,
+ *   bukan pilihan preventif shipper)
+ * - UPS Returns (Print/Electronic/Return Label, Returns Plus) -- beda alur
+ *   (bukan outbound shipment biasa)
+ * - UPS Import Control, Commercial Invoice Removal -- perlu smart-label
+ *   compliant system, di luar scope kalkulator rate
+ * - Disbursement Fee, Warehouse Storage, Document Fee, Post Entry Clearance,
+ *   Temporary Import/Export Clearance -- proses customs pasca-shipment,
+ *   bukan pilihan di titik kalkulasi rate
  */
+import { lookupEasRas } from './eas_ras_lookup.js'
 
-// --- Export/Import Declaration (a.k.a. PEB/PIB) ---
-export const EXPORT_DECLARATION_FEE = 190189   // "Export Declaration Surcharge" (PEB) - hal.6
-export const IMPORT_DECLARATION_FEE = 190977   // "Import Declaration Surcharge" (PIB) - hal.7
 
-// --- Saturday ---
-export const SATURDAY_DELIVERY_NON_FREIGHT_FEE = 171680   // hal.5
-export const SATURDAY_DELIVERY_FREIGHT_FEE = 3432120      // WWEF - hal.5
+export const SATURDAY_DELIVERY_NON_FREIGHT_FEE = 171680
+export const SATURDAY_DELIVERY_FREIGHT_FEE = 3432120  // UPS Worldwide Express Freight Services
 
-// --- Delivery options ---
-export const DIRECT_DELIVERY_ONLY_PER_PKG_FEE = 31080     // hal.5
+export const DIRECT_DELIVERY_ONLY_FEE = 31080  // per package
 
-// --- Area surcharges (Residential/Extended/Remote) ---
-export const RESIDENTIAL_NON_FREIGHT_FEE = 58312          // hal.6
-export const RESIDENTIAL_FREIGHT_FEE = 1879600            // WWEF - hal.6
-export const EXTENDED_AREA_MIN_FEE = 429792                // hal.6
-export const EXTENDED_AREA_PER_KG_FEE = 8288
-export const REMOTE_AREA_MIN_FEE = 479964                  // hal.6
-export const REMOTE_AREA_PER_KG_FEE = 9472
+export const RESIDENTIAL_NON_FREIGHT_FEE = 58312
+export const RESIDENTIAL_FREIGHT_FEE = 1879600  // UPS Worldwide Express Freight Services
 
-// --- Billing / admin ---
-export const DUTY_TAX_FORWARDING_FEE = 310060              // hal.6
-export const ADDRESS_CORRECTION_PER_PKG_FEE = 187072        // hal.6
+export const EXTENDED_AREA_MIN_FEE = 429792
+export const EXTENDED_AREA_PER_KG = 8288
+
+export const REMOTE_AREA_MIN_FEE = 479964
+export const REMOTE_AREA_PER_KG = 9472
+
+export const EXPORT_DECLARATION_FEE = 190189   // "PEB" -- Pemberitahuan Ekspor Barang
+export const IMPORT_DECLARATION_FEE = 190977
+
+export const DELIVERY_CONFIRMATION_SIGNATURE_FEE = 37740
+export const DELIVERY_CONFIRMATION_ADULT_SIGNATURE_FEE = 71040
+
+export const DUTY_TAX_FORWARDING_FEE = 310060  // import only
+
+export const PAPER_COMMERCIAL_INVOICE_MAX_FEE = 370000  // "maximum charge"
+
+export const CARBON_OFFSET_PACKAGE_FEE = 11690
+export const CARBON_OFFSET_PALLET_FEE = 311980  // UPS Worldwide Express Freight Services
+
+export const ADDRESS_CORRECTION_PER_PACKAGE_FEE = 187072
 export const ADDRESS_CORRECTION_MAX_PER_SHIPMENT_FEE = 653420
-export const BILL_RECEIVER_REFUSAL_FEE = 311980            // hal.6
-export const LOOKUP_SURCHARGE_FEE = 15540                  // hal.6
-export const REBILL_FEE = 312280                           // hal.6
-export const DOCUMENT_FEE = 50000                           // hal.6
-export const POST_ENTRY_CLEARANCE_FEE = 100000              // hal.6
-export const TEMP_IMPORT_EXPORT_CLEARANCE_FEE = 715000      // hal.6
-export const ALTERNATE_BROKER_FEE = 429502                  // hal.6
-export const DISBURSEMENT_FEE_MIN = 94159                   // hal.6 (atau 5.9% dr duty/tax, mana yg lebih besar)
-export const DISBURSEMENT_FEE_PCT = 5.9
-
-// --- Signature ---
-export const DELIVERY_CONFIRMATION_SIGNATURE_FEE = 37740    // hal.7
-export const DELIVERY_CONFIRMATION_ADULT_SIGNATURE_FEE = 71040 // hal.7
-
-// --- UPS Import Control ---
-export const IMPORT_CONTROL_PRINT_LABEL_FEE = 15540          // hal.8
-export const IMPORT_CONTROL_ELECTRONIC_LABEL_FEE = 23380     // hal.8
-
-// --- Sustainability / special cargo ---
-export const CARBON_OFFSET_PER_PACKAGE_FEE = 11690           // hal.8
-export const CARBON_OFFSET_PER_PALLET_FREIGHT_FEE = 311980   // WWEF - hal.8
-export const DRY_ICE_FEE = 78000                              // per package/pallet - hal.4
-
-// --- Freight (WWEF) only ---
-export const DELIVERY_REATTEMPT_FREIGHT_FEE = 748800          // hal.8
-
-// --- Compliance / exceptions ---
-export const PROHIBITED_ITEM_FEE_PER_PKG = 4440000            // hal.8
-export const PAPER_COMMERCIAL_INVOICE_FEE = 370000            // maksimum per shipment - hal.8
-export const PRE_RELEASE_NOTIFICATION_FEE = 370000            // hal.8
-
-// --- Additional Insurance ---
-export const ADDITIONAL_INSURANCE_THRESHOLD_IDR = 1480000     // hal.5
-export const ADDITIONAL_INSURANCE_PER_INCREMENT_FEE = 32710   // per kelipatan threshold di atas
 
 /**
- * Hitung semua surcharge opsional (checkbox) UPS yang di-tick user.
- *
- * @param {Object} params
- * @param {string} params.service - 'envelope' | 'express' | 'saver' | 'expedited' | 'wwef' | dst.
- * @param {string} params.direction - 'export' | 'import'
- * @param {number} params.billedWeightKg - berat billable (chargeable weight) shipment.
- * @param {number} [params.packageCount=1] - jumlah collie/package dlm shipment (utk surcharge per-package).
- * @param {Object} [opts] - flag checkbox dari form (semua default false).
- * @returns {{components: Array<{label:string, amount:number}>, notes: string[]}}
+ * Hitung semua surcharge opsional (manual tick) UPS untuk 1 shipment.
+ * `opts` -- semua boolean, default false (tidak berubah kalau tidak diisi).
+ * `is_freight` -- true kalau service = wwef (dipetakan ke "UPS Worldwide
+ * Express Freight Services" utk tarif Saturday Delivery/Residential/Carbon
+ * Offset versi freight).
+ * `package_count` -- dipakai utk Direct Delivery Only & Carbon Offsets
+ * (dikenakan PER PACKAGE), default 1.
  */
-export function computeOptionalUpsSurcharges(params, opts = {}) {
+export function computeOptionalSurcharges(direction, chargeable_weight_kg, opts = {}, country = '', postalCode = '') {
     const {
-        service = '',
-        direction = 'export',
-        billedWeightKg = 0,
-        packageCount = 1,
-    } = params
-
-    const {
-        export_declaration = false,        // PEB
-        import_declaration = false,        // PIB
+        is_freight = false,
+        package_count = 1,
         saturday_delivery = false,
         direct_delivery_only = false,
         residential = false,
         extended_area = false,
         remote_area = false,
-        duty_tax_forwarding = false,
-        address_correction = false,
-        bill_receiver_refusal = false,
-        lookup_surcharge = false,
-        rebill_fee = false,
+        export_declaration = false,   // "PEB"
+        import_declaration = false,
         delivery_confirmation_signature = false,
         delivery_confirmation_adult_signature = false,
-        document_fee = false,
-        post_entry_clearance = false,
-        temporary_import_export_clearance = false,
-        alternate_broker = false,
-        import_control_print_label = false,
-        import_control_electronic_label = false,
-        carbon_offset = false,
-        dry_ice = false,
-        delivery_reattempt = false,
-        prohibited_item = false,
+        duty_tax_forwarding = false,
         paper_commercial_invoice = false,
-        pre_release_notification = false,
-        disbursement_fee = false,
-        duty_tax_amount = 0,               // dipakai kalau disbursement_fee = true
-        declared_value_idr = 0,            // nilai barang -> dipakai utk Additional Insurance
+        carbon_offset = false,
+        address_correction = false,
     } = opts
 
-    const isFreight = service === 'wwef'
-    const isImport = direction === 'import'
     const components = []
     const notes = []
-    const addFee = (label, amount) => components.push({ label, amount })
+    const isImport = direction === 'import'
 
-    // --- PEB / PIB ---
-    // PENTING: nama "PEB"/"PIB" di sini cuma label pendekatan yg umum
-    // dipakai forwarder Indonesia -- surcharge ASLI di UPS guide (hal.6-7)
-    // BUKAN dikenakan rutin di setiap ekspor/impor. Syaratnya SALAH SATU:
-    // (a) barang termasuk strategic/controlled/regulated goods, ATAU
-    // (b) shipper/consignee MEMINTA formal declaration padahal secara
-    // hukum tidak wajib. PIB/PEB rutin (yg wajib di setiap shipment)
-    // sudah masuk "Customs Brokerage Charges" (gratis s/d 5 tariff line)
-    // & "Brokerage Admin Fee (BAF)" IDR118.647 yg SUDAH otomatis
-    // dikenakan ke semua impor dutiable (lihat calculator.js -> surcharges['Brokerage']).
-    // Jangan asumsikan checkbox ini = "PIB wajib tiap impor".
+    if (saturday_delivery) {
+        const amount = is_freight ? SATURDAY_DELIVERY_FREIGHT_FEE : SATURDAY_DELIVERY_NON_FREIGHT_FEE
+        components.push({ label: 'Saturday Delivery', amount })
+    }
+
+    if (direct_delivery_only) {
+        components.push({ label: 'Direct Delivery Only', amount: DIRECT_DELIVERY_ONLY_FEE * Math.max(1, package_count) })
+    }
+
+    // Extended/Remote Area -- OTOMATIS dulu (data resmi kode pos UPS), baru
+    // fallback ke checkbox manual kalau kode posnya tidak tercakup data.
+    const autoType = country ? lookupEasRas(country, postalCode, '', isImport ? 'origin' : 'destination') : null
+
+    if (autoType === 'RAS') {
+        components.push({ label: 'Remote Area Surcharge', amount: Math.max(REMOTE_AREA_MIN_FEE, REMOTE_AREA_PER_KG * chargeable_weight_kg) })
+        notes.push(`Remote Area Surcharge terdeteksi OTOMATIS dari kode pos ${postalCode || '(kosong)'} (${country}), bukan dari centang manual.`)
+        if (extended_area) notes.push('Centang manual Extended Area diabaikan -- kode pos ini sudah terdeteksi Remote Area (lebih tinggi) dari data resmi.')
+    } else if (autoType === 'EAS') {
+        components.push({ label: 'Extended Area Surcharge (DAS)', amount: Math.max(EXTENDED_AREA_MIN_FEE, EXTENDED_AREA_PER_KG * chargeable_weight_kg) })
+        notes.push(`Extended Area Surcharge terdeteksi OTOMATIS dari kode pos ${postalCode || '(kosong)'} (${country}), bukan dari centang manual.`)
+        if (remote_area) notes.push('Centang manual Remote Area diabaikan -- kode pos ini terdeteksi Extended Area (bukan Remote) dari data resmi.')
+    } else {
+        // Tidak terdeteksi otomatis (negara di luar cakupan data, atau kode
+        // pos memang tidak kena EAS/RAS) -- pakai checkbox manual sbg fallback.
+        if (extended_area && remote_area) {
+            notes.push('Extended Area & Remote Area (manual) sama-sama dicentang -- ini seharusnya saling eksklusif (1 titik lokasi cuma salah satu). Kedua surcharge tetap DIJUMLAH krn tidak ada aturan resolusi eksplisit di PDF -- cek ulang kalau ini bukan yang dimaksud.')
+        }
+        if (extended_area) {
+            components.push({ label: 'Extended Area Surcharge (DAS)', amount: Math.max(EXTENDED_AREA_MIN_FEE, EXTENDED_AREA_PER_KG * chargeable_weight_kg) })
+            notes.push('Extended Area Surcharge dari centang manual (kode pos ini tidak tercakup data resmi UPS yang dipakai kalkulator ini).')
+        }
+        if (remote_area) {
+            components.push({ label: 'Remote Area Surcharge', amount: Math.max(REMOTE_AREA_MIN_FEE, REMOTE_AREA_PER_KG * chargeable_weight_kg) })
+            notes.push('Remote Area Surcharge dari centang manual (kode pos ini tidak tercakup data resmi UPS yang dipakai kalkulator ini).')
+        }
+    }
+
+    if (residential) {
+        const amount = is_freight ? RESIDENTIAL_FREIGHT_FEE : RESIDENTIAL_NON_FREIGHT_FEE
+        components.push({ label: 'Residential Surcharge', amount })
+    }
+
     if (export_declaration) {
-        if (isImport) notes.push('Export Declaration Surcharge (mirip PEB) biasanya berlaku utk shipment EKSPOR, tapi tetap dibebankan sesuai pilihan user.')
-        notes.push('Export Declaration Surcharge HANYA berlaku kalau barang termasuk strategic/controlled/regulated goods, ATAU shipper/consignee minta formal declaration walau tidak wajib -- BUKAN biaya rutin di setiap ekspor.')
-        addFee('Export Declaration Surcharge (mirip PEB)', EXPORT_DECLARATION_FEE)
+        if (!isImport) {
+            components.push({ label: 'Export Declaration Surcharge (PEB)', amount: EXPORT_DECLARATION_FEE })
+        } else {
+            notes.push('Export Declaration Surcharge (PEB) cuma berlaku utk shipment EKSPOR -> diabaikan (arah saat ini: import).')
+        }
     }
     if (import_declaration) {
-        if (!isImport) notes.push('Import Declaration Surcharge (mirip PIB) biasanya berlaku utk shipment IMPOR, tapi tetap dibebankan sesuai pilihan user.')
-        notes.push('Import Declaration Surcharge HANYA berlaku kalau barang termasuk strategic/controlled/regulated goods, ATAU shipper/consignee minta formal declaration walau tidak wajib -- BUKAN pengganti PIB rutin (PIB rutin & Brokerage Admin Fee/BAF sudah otomatis masuk di baris "Brokerage").')
-        addFee('Import Declaration Surcharge (mirip PIB)', IMPORT_DECLARATION_FEE)
-    }
-
-    // --- Saturday Delivery ---
-    if (saturday_delivery) {
-        addFee('Saturday Delivery', isFreight ? SATURDAY_DELIVERY_FREIGHT_FEE : SATURDAY_DELIVERY_NON_FREIGHT_FEE)
-    }
-
-    // --- Direct Delivery Only (per package) ---
-    if (direct_delivery_only) {
-        addFee('Direct Delivery Only', DIRECT_DELIVERY_ONLY_PER_PKG_FEE * Math.max(1, packageCount))
-    }
-
-    // --- Residential / Extended Area / Remote Area ---
-    if (residential) {
-        addFee('Residential Surcharge', isFreight ? RESIDENTIAL_FREIGHT_FEE : RESIDENTIAL_NON_FREIGHT_FEE)
-    }
-    if (extended_area) {
-        addFee('Extended Area Surcharge (DAS)', Math.max(EXTENDED_AREA_MIN_FEE, EXTENDED_AREA_PER_KG_FEE * billedWeightKg))
-    }
-    if (remote_area) {
-        addFee('Remote Area Surcharge', Math.max(REMOTE_AREA_MIN_FEE, REMOTE_AREA_PER_KG_FEE * billedWeightKg))
-    }
-    if (extended_area && remote_area) {
-        notes.push('Extended Area & Remote Area sama-sama ditandai -- pada praktiknya UPS biasanya hanya menerapkan SALAH SATU (tergantung titik alamat), tapi di sini keduanya dijumlah sesuai pilihan user. Cek titik ODA/Remote resmi di ups.com/id kalau perlu pasti.')
-    }
-
-    // --- Billing / admin ---
-    if (duty_tax_forwarding) addFee('Duty/Tax Forwarding Surcharge', DUTY_TAX_FORWARDING_FEE)
-    if (address_correction) {
-        const raw = ADDRESS_CORRECTION_PER_PKG_FEE * Math.max(1, packageCount)
-        addFee('Address Correction', Math.min(raw, ADDRESS_CORRECTION_MAX_PER_SHIPMENT_FEE))
-    }
-    if (bill_receiver_refusal) addFee('Bill Receiver/Freight Collect Refusal Fee', BILL_RECEIVER_REFUSAL_FEE)
-    if (lookup_surcharge) addFee('Look-up Surcharge', LOOKUP_SURCHARGE_FEE)
-    if (rebill_fee) addFee('Rebill Fee', REBILL_FEE)
-    if (document_fee) addFee('Document Fee', DOCUMENT_FEE)
-    if (post_entry_clearance) addFee('Post Entry Clearance', POST_ENTRY_CLEARANCE_FEE)
-    if (temporary_import_export_clearance) addFee('Temporary Import/Export Clearance', TEMP_IMPORT_EXPORT_CLEARANCE_FEE)
-    if (alternate_broker) addFee('Alternate Broker', ALTERNATE_BROKER_FEE)
-
-    if (disbursement_fee) {
-        const pctAmount = duty_tax_amount > 0 ? duty_tax_amount * (DISBURSEMENT_FEE_PCT / 100) : 0
-        addFee('Disbursement Fee', Math.max(DISBURSEMENT_FEE_MIN, pctAmount))
-        if (duty_tax_amount <= 0) {
-            notes.push('Disbursement Fee dihitung pakai nilai minimum (IDR94.159) karena nominal duty/tax belum diisi -- isi "Nilai Duty/Tax" kalau mau hitung 5.9% dari nilai sebenarnya.')
-        }
-    }
-
-    // --- Signature (mutually exclusive) ---
-    if (delivery_confirmation_signature && delivery_confirmation_adult_signature) {
-        notes.push('Delivery Confirmation Signature Required & Adult Signature Required sama-sama ditandai -- keduanya dijumlah sesuai pilihan user, meski normalnya pengirim cuma pilih salah satu.')
-    }
-    if (delivery_confirmation_signature) addFee('Delivery Confirmation Signature Required', DELIVERY_CONFIRMATION_SIGNATURE_FEE)
-    if (delivery_confirmation_adult_signature) addFee('Delivery Confirmation Adult Signature Required', DELIVERY_CONFIRMATION_ADULT_SIGNATURE_FEE)
-
-    // --- UPS Import Control (mutually exclusive) ---
-    if (import_control_print_label) addFee('UPS Import Control - Print Label', IMPORT_CONTROL_PRINT_LABEL_FEE)
-    if (import_control_electronic_label) addFee('UPS Import Control - Electronic Label', IMPORT_CONTROL_ELECTRONIC_LABEL_FEE)
-
-    // --- Sustainability / special cargo ---
-    if (carbon_offset) {
-        addFee('UPS Carbon Offset', isFreight
-            ? CARBON_OFFSET_PER_PALLET_FREIGHT_FEE * Math.max(1, packageCount)
-            : CARBON_OFFSET_PER_PACKAGE_FEE * Math.max(1, packageCount))
-    }
-    if (dry_ice) addFee('Dry Ice Surcharge', DRY_ICE_FEE * Math.max(1, packageCount))
-
-    // --- Freight only ---
-    if (delivery_reattempt) {
-        if (!isFreight) {
-            notes.push('Delivery Reattempt charge (IDR748.800) hanya berlaku utk UPS Worldwide Express Freight (WWEF) -- diabaikan karena service saat ini bukan WWEF (1 attempt gratis sudah termasuk di rate non-freight).')
+        if (isImport) {
+            components.push({ label: 'Import Declaration Surcharge', amount: IMPORT_DECLARATION_FEE })
         } else {
-            addFee('Delivery Reattempt', DELIVERY_REATTEMPT_FREIGHT_FEE)
+            notes.push('Import Declaration Surcharge cuma berlaku utk shipment IMPOR -> diabaikan (arah saat ini: export).')
         }
     }
 
-    // --- Compliance / exceptions ---
-    if (prohibited_item) addFee('Prohibited Item Fee', PROHIBITED_ITEM_FEE_PER_PKG * Math.max(1, packageCount))
-    if (paper_commercial_invoice) addFee('Paper Commercial Invoice Surcharge', PAPER_COMMERCIAL_INVOICE_FEE)
-    if (pre_release_notification) addFee('Pre-Release Notification Surcharge', PRE_RELEASE_NOTIFICATION_FEE)
+    if (delivery_confirmation_adult_signature) {
+        components.push({ label: 'Delivery Confirmation Adult Signature Required', amount: DELIVERY_CONFIRMATION_ADULT_SIGNATURE_FEE })
+        if (delivery_confirmation_signature) {
+            notes.push('Delivery Confirmation Signature Required & Adult Signature Required sama-sama dicentang -- keduanya beda layanan (bukan upgrade satu sama lain seperti FedEx ISR/DSR/ASR), jadi tetap DIJUMLAH sesuai PDF (tidak ada aturan mutually-exclusive disebutkan).')
+            components.push({ label: 'Delivery Confirmation Signature Required', amount: DELIVERY_CONFIRMATION_SIGNATURE_FEE })
+        }
+    } else if (delivery_confirmation_signature) {
+        components.push({ label: 'Delivery Confirmation Signature Required', amount: DELIVERY_CONFIRMATION_SIGNATURE_FEE })
+    }
 
-    // --- Additional Insurance ---
-    // "For each shipment over IDR1.480.000, you may purchase additional
-    // coverage against loss or damage at IDR32.710 for each additional
-    // IDR1.480.000 or fraction thereof." -> nilai barang s/d threshold
-    // dianggap sudah ter-cover standar (gratis), kelebihannya dikenakan
-    // per kelipatan (dibulatkan ke atas).
-    if (declared_value_idr > ADDITIONAL_INSURANCE_THRESHOLD_IDR) {
-        const excess = declared_value_idr - ADDITIONAL_INSURANCE_THRESHOLD_IDR
-        const increments = Math.ceil(excess / ADDITIONAL_INSURANCE_THRESHOLD_IDR)
-        addFee('Additional Insurance', increments * ADDITIONAL_INSURANCE_PER_INCREMENT_FEE)
-    } else if (declared_value_idr > 0) {
-        notes.push(`Nilai barang (IDR${declared_value_idr.toLocaleString('id-ID')}) belum melebihi ambang batas Additional Insurance UPS (IDR${ADDITIONAL_INSURANCE_THRESHOLD_IDR.toLocaleString('id-ID')}) -- tidak ada surcharge tambahan.`)
+    if (duty_tax_forwarding) {
+        if (isImport) {
+            components.push({ label: 'Duty/Tax Forwarding Surcharge', amount: DUTY_TAX_FORWARDING_FEE })
+        } else {
+            notes.push('Duty/Tax Forwarding Surcharge cuma berlaku utk shipment IMPOR -> diabaikan (arah saat ini: export).')
+        }
+    }
+
+    if (paper_commercial_invoice) {
+        components.push({ label: 'Paper Commercial Invoice Surcharge (maks.)', amount: PAPER_COMMERCIAL_INVOICE_MAX_FEE })
+    }
+
+    if (carbon_offset) {
+        const amount = is_freight ? CARBON_OFFSET_PALLET_FEE : CARBON_OFFSET_PACKAGE_FEE * Math.max(1, package_count)
+        components.push({ label: 'UPS Carbon Offsets', amount })
+    }
+
+    if (address_correction) {
+        const amount = Math.min(ADDRESS_CORRECTION_PER_PACKAGE_FEE * Math.max(1, package_count), ADDRESS_CORRECTION_MAX_PER_SHIPMENT_FEE)
+        components.push({ label: 'Address Correction', amount })
+        notes.push('Address Correction biasanya fee EXCEPTION (dikenakan FedEx/UPS setelah alamat terbukti salah), bukan pilihan yang biasa di-tick di awal -- centang cuma kalau memang mau simulasikan skenario ini.')
     }
 
     const total = components.reduce((sum, c) => sum + c.amount, 0)
     return { components, total_charge: total, notes }
 }
-
-export default { computeOptionalUpsSurcharges }

@@ -167,6 +167,36 @@ checkEq('Collie 1 (silinder) -> kena AHS-Packaging',
 checkEq('Collie 2 (box biasa, TANPA flag) -> TIDAK ikut kena AHS-Packaging',
     Object.keys(mixedPkgFedex.surcharges).some(k => k.startsWith('AHS - Packaging') && k.includes('Collie 2')), false)
 
+// ─── BUG #9: EAS/Remote Area UPS sekarang otomatis dari kode pos (data resmi) ─
+// Sebelumnya EAS/Remote Area cuma checkbox manual (user harus tahu sendiri).
+// Sekarang otomatis pakai data resmi UPS "ea-surcharge-en-GLOBAL efektif 7
+// Juni 2026.xlsx" (dari calculator-ups.zip yang dilampirkan user).
+console.log('\n=== BUG #9: EAS/Remote Area UPS otomatis dari kode pos ===')
+const rasAuto = pricingRouter.calculate({
+    carrier: 'ups', rate_type: 'publish', service: 'saver', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'United States',
+    postal_code_destination: '41035', weight_kg: 5, extra: { fsi_pct: 0 },
+})
+checkEq('Kode pos US 41035 (RAS di data resmi) -> Remote Area Surcharge otomatis',
+    'Remote Area Surcharge' in rasAuto.surcharges, true)
+
+const normalZip = pricingRouter.calculate({
+    carrier: 'ups', rate_type: 'publish', service: 'saver', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'United States',
+    postal_code_destination: '90001', weight_kg: 5, extra: { fsi_pct: 0 },
+})
+checkEq('Kode pos US 90001 (normal) -> TIDAK kena EAS/RAS (kontrol negatif)',
+    ('Remote Area Surcharge' in normalZip.surcharges) || ('Extended Area Surcharge (DAS)' in normalZip.surcharges), false)
+
+const manualFallback = pricingRouter.calculate({
+    carrier: 'ups', rate_type: 'publish', service: 'saver', direction: 'export',
+    origin_country: 'Indonesia', destination_country: 'Singapore',
+    postal_code_destination: '123456', weight_kg: 5, extra: { fsi_pct: 0 },
+    special_handling: { extended_area: true },
+})
+checkEq('Negara di luar cakupan data (Singapore) -> fallback ke centang manual tetap jalan',
+    'Extended Area Surcharge (DAS)' in manualFallback.surcharges, true)
+
 // ─── Summary ─────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(40)}`)
 console.log(`HASIL: ${pass} LULUS | ${fail} GAGAL dari ${pass+fail} test`)

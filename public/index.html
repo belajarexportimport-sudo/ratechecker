@@ -119,31 +119,56 @@
                         <input type="date" id="shipDate" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm focus:ring-blue-500 focus:border-blue-500">
                     </div>
 
-                    <!-- Nilai Barang / Declared Value (opsional -> Insurance/Declared Value Charge) -->
+                    <!-- Layanan Tambahan (opsional, tinggal di-tick) -->
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">
-                            Nilai Barang (IDR) <span class="text-slate-400 font-normal">- Opsional</span>
-                        </label>
-                        <input type="number" id="declaredValue" step="1000" min="0" placeholder="mis. 5000000" class="w-full rounded-lg border-slate-300 border p-2.5 text-sm">
-                        <p class="text-xs text-slate-400 mt-1">UPS: gratis s/d Rp1.480.000, lebih dari itu kena Rp32.710 / kelipatan Rp1.480.000. FedEx: ambang gratisnya JUGA dipengaruhi berat (yang lebih besar antara Rp1.375.000 atau Rp125.000/pound), lebih dari itu kena Rp34.000 / kelipatan Rp1.375.000.</p>
-                    </div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Layanan Tambahan <span class="text-slate-400 font-normal">- Opsional</span></label>
+                        <p class="text-xs text-slate-400 mb-2">Centang kalau shipment butuh layanan ini -- nominal resmi dari rate guide FedEx & UPS Indonesia 2026.</p>
+                        <details class="text-sm">
+                            <summary class="text-blue-600 cursor-pointer select-none">Pilih layanan tambahan</summary>
+                            <div class="mt-2 space-y-3 pl-1 border-l-2 border-slate-100">
 
-                    <!-- UPS Extended Area / Remote Area (manual -- UPS tidak menerbitkan daftar titiknya dalam format yang bisa dibaca otomatis di sini) -->
-                    <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">
-                            UPS Extended/Remote Area <span class="text-slate-400 font-normal">- Opsional, manual</span>
-                        </label>
-                        <p class="text-xs text-slate-400 mb-1.5">Belum bisa otomatis (UPS cuma menerbitkan daftar titiknya lewat file terpisah di ups.com/id) -- centang kalau kamu tahu alamatnya termasuk Extended/Remote Area.</p>
-                        <div class="flex gap-4">
-                            <label class="flex items-center gap-1.5 text-sm text-slate-600">
-                                <input type="checkbox" id="upsExtendedArea" class="rounded border-slate-300">
-                                <span>Extended Area</span>
-                            </label>
-                            <label class="flex items-center gap-1.5 text-sm text-slate-600">
-                                <input type="checkbox" id="upsRemoteArea" class="rounded border-slate-300">
-                                <span>Remote Area</span>
-                            </label>
-                        </div>
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-500 mb-1">Berlaku ke FedEx & UPS</p>
+                                    <div class="space-y-1.5">
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shSaturdayDelivery" class="mt-0.5 rounded border-slate-300"><span>Saturday Delivery</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shResidential" class="mt-0.5 rounded border-slate-300"><span>Residential Delivery (alamat rumah tinggal)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shAddressCorrection" class="mt-0.5 rounded border-slate-300"><span>Simulasikan Address Correction (alamat salah/tidak lengkap)</span></label>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-500 mb-1">Khusus FedEx</p>
+                                    <div class="space-y-1.5">
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shSaturdayPickup" class="mt-0.5 rounded border-slate-300"><span>Saturday Pick Up</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shThirdPartyConsignee" class="mt-0.5 rounded border-slate-300"><span>Third Party Consignee Surcharge</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shBrokerSelect" class="mt-0.5 rounded border-slate-300"><span>FedEx International Broker Select</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shIsr" class="mt-0.5 rounded border-slate-300"><span>Indirect Signature Required (ISR)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDsr" class="mt-0.5 rounded border-slate-300"><span>Direct Signature Required (DSR)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shAsr" class="mt-0.5 rounded border-slate-300"><span>Adult Signature Required (ASR)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDryIce" class="mt-0.5 rounded border-slate-300"><span>Dry Ice Surcharge</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shAccessibleDg" class="mt-0.5 rounded border-slate-300"><span>Accessible Dangerous Goods (Jabodetabek/Batam)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shInaccessibleDg" class="mt-0.5 rounded border-slate-300"><span>Inaccessible Dangerous Goods (Jabodetabek/Batam)</span></label>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-500 mb-1">Khusus UPS</p>
+                                    <div class="space-y-1.5">
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDirectDeliveryOnly" class="mt-0.5 rounded border-slate-300"><span>Direct Delivery Only</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shExtendedArea" class="mt-0.5 rounded border-slate-300"><span>Extended Area Surcharge (DAS)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shRemoteArea" class="mt-0.5 rounded border-slate-300"><span>Remote Area Surcharge</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shExportDeclaration" class="mt-0.5 rounded border-slate-300"><span>Export Declaration Surcharge (PEB)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shImportDeclaration" class="mt-0.5 rounded border-slate-300"><span>Import Declaration Surcharge</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDeliveryConfSig" class="mt-0.5 rounded border-slate-300"><span>Delivery Confirmation Signature Required</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDeliveryConfAdultSig" class="mt-0.5 rounded border-slate-300"><span>Delivery Confirmation Adult Signature Required</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shDutyTaxForwarding" class="mt-0.5 rounded border-slate-300"><span>Duty/Tax Forwarding Surcharge (import)</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shPaperInvoice" class="mt-0.5 rounded border-slate-300"><span>Paper Commercial Invoice Surcharge</span></label>
+                                        <label class="flex items-start gap-2 text-slate-600"><input type="checkbox" id="shCarbonOffset" class="mt-0.5 rounded border-slate-300"><span>UPS Carbon Offsets</span></label>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </details>
                     </div>
 
                     <div class="pt-4">
@@ -472,20 +497,6 @@
         // BELUM mengubah rate yang dipakai -- murni pencatatan.
         const shipDate = shipDateEl.value;
         if (shipDate) reqPayload.base_request.extra.ship_date = shipDate;
-
-        // Nilai barang -> Additional Insurance (UPS) / Declared Value Charge (FedEx)
-        const declaredValue = parseFloat(document.getElementById('declaredValue').value);
-        if (declaredValue > 0) reqPayload.base_request.extra.declared_value_idr = declaredValue;
-
-        // UPS Extended/Remote Area -- manual, lihat catatan di form
-        const extArea = document.getElementById('upsExtendedArea').checked;
-        const remArea = document.getElementById('upsRemoteArea').checked;
-        if (extArea || remArea) {
-            reqPayload.base_request.extra.optional = {
-                extended_area: extArea,
-                remote_area: remArea,
-            };
-        }
 
         // Markup jual khusus FedEx Commercial -- diterapkan di render (client-side),
         // bukan dikirim ke backend, karena ini harga jual bukan surcharge resmi.

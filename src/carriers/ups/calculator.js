@@ -10,11 +10,9 @@ import {
     IPF_FEE,
     IPF_ELIGIBLE_SERVICES,
     isUnitedStates,
-    packagingTriggersAHS,
-    computeAdditionalInsurance,
-    computeExtendedAreaCharge,
-    computeRemoteAreaCharge
+    packagingTriggersAHS
 } from './rules.js'
+import { computeOptionalSurcharges } from './surcharges/optional.js'
 
 export function calculate(request) {
     const direction = request.direction.toLowerCase()
@@ -154,30 +152,6 @@ export function calculate(request) {
         surcharges['International Processing Fee (IPF)'] = IPF_FEE
     }
 
-    // Additional Insurance -- opsional, hanya dihitung kalau user isi nilai
-    // barang (extra.declared_value_idr). Murni berbasis nilai, TIDAK ada
-    // komponen berat (beda dgn FedEx -- lihat computeDeclaredValueCharge di
-    // FedEx calculator).
-    const declaredValueIdr = request.extra?.declared_value_idr
-    if (declaredValueIdr) {
-        const insuranceCost = computeAdditionalInsurance(declaredValueIdr)
-        if (insuranceCost > 0) {
-            surcharges['Additional Insurance'] = insuranceCost
-        }
-    }
-
-    // Extended Area / Remote Area -- WAJIB manual (lihat catatan di rules.js),
-    // TIDAK otomatis ter-tick dari kode pos. Mutually exclusive di dunia
-    // nyata (satu titik cuma salah satu), tapi tidak dipaksakan di sini --
-    // kalau user centang dua-duanya, dua-duanya dihitung.
-    const optional = request.extra?.optional || {}
-    if (optional.extended_area) {
-        surcharges['Extended Area'] = pyRound(computeExtendedAreaCharge(adjustedChargeableWeight, optional.extended_area_multiplier || 1))
-    }
-    if (optional.remote_area) {
-        surcharges['Remote Area'] = pyRound(computeRemoteAreaCharge(adjustedChargeableWeight, optional.remote_area_multiplier || 1))
-    }
-
     // Surge Fee (SURGE_V3)
     const region    = determineSurgeRegion(country)
     const surgeDict = isImport ? SURGE_V3.import : SURGE_V3.export
@@ -185,6 +159,21 @@ export function calculate(request) {
     if (surgeRate > 0) {
         surcharges['Surge Fee'] = pyRound(surgeRate * Math.ceil(adjustedChargeableWeight))
     }
+
+    // Layanan tambahan opsional (manual tick) -- lihat surcharges/optional.js.
+    // package_count dipakai utk Direct Delivery Only & Carbon Offsets (per
+    // package); is_freight dipetakan dari service 'wwef' (analog "UPS
+    // Worldwide Express Freight Services" di PDF -- engine ini tidak model
+    // Express Freight/Freight Midday scr terpisah dari saver/expedited).
+    const optResult = computeOptionalSurcharges(direction, chargeableWeight, {
+        is_freight: service === 'wwef',
+        package_count: multiPackage ? request.packages.length : 1,
+        ...(request.special_handling || {}),
+    }, country, postalCode)
+    optResult.components.forEach(c => {
+        surcharges[c.label] = pyRound(c.amount)
+    })
+    const notes = [...optResult.notes]
 
     // === STEP 5: FSI ===
     let totalSurchargeBeforeFsi = 0
@@ -224,7 +213,7 @@ export function calculate(request) {
         discount: discount,
         total: total,
         currency: 'IDR',
-        notes: [],
+        notes: notes,
         extra: {
             chargeable_weight: chargeableWeight,
             dim_weight: dimWeight,

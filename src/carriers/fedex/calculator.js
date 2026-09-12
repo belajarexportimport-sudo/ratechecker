@@ -15,8 +15,7 @@ import {
     MINIMUM_BILLED_WEIGHT_KG,
     MINIMUM_FREIGHT_WEIGHT_KG,
     isFreight,
-    roundUp1000,
-    computeDeclaredValueCharge
+    roundUp1000
 } from './rules.js'
 
 // =============================================================================
@@ -324,20 +323,6 @@ export function calculate(request) {
     })
     if (shResult.notes && shResult.notes.length > 0) {
         notes.push(...shResult.notes)
-    }
-
-    // Declared Value Charge for Carriage -- opsional, hanya dihitung kalau
-    // user isi nilai barang (extra.declared_value_idr). BEDA dari UPS
-    // Additional Insurance: ambang bebas biaya di sini ADA komponen berat
-    // (lihat computeDeclaredValueCharge di rules.js) -- dipakai berat AKTUAL
-    // shipment (request.weight_kg, sudah termasuk penyesuaian auto-switch
-    // kalau ada), bukan chargeable/billed weight.
-    const declaredValueIdr = request.extra?.declared_value_idr
-    if (declaredValueIdr) {
-        const dvCharge = computeDeclaredValueCharge(declaredValueIdr, request.weight_kg)
-        if (dvCharge > 0) {
-            surcharges['Declared Value Charge for Carriage'] = pyRound(dvCharge)
-        }
     }
 
     // Fuel Surcharge

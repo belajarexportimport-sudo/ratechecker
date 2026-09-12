@@ -220,8 +220,6 @@ export function computeShipmentChargeableWeight(packages, divisor = DIMENSIONAL_
 /**
  * Hitung CWT shipment IPF/IEF multi-unit.
  */
-import { MINIMUM_FREIGHT_WEIGHT_KG } from '../rules.js'
-
 export function computeFreightChargeableWeight(freight_units, divisor = DIMENSIONAL_WEIGHT_DIVISOR_CM) {
     const details = []
     let total = 0.0
@@ -238,18 +236,6 @@ export function computeFreightChargeableWeight(freight_units, divisor = DIMENSIO
             dim_w = dimensionalWeightKg(length_cm, width_cm, height_cm, divisor)
             cw = Math.max(actual, dim_w)
         }
-
-        // PERBAIKAN (laporan user 12 Sep 2026): IPF/IEF minimum billable
-        // weight 68kg/unit TIDAK PERNAH diterapkan di jalur ini -- cuma
-        // diterapkan di jalur `else` (single dimensions_cm, bukan lewat
-        // auto-switch/freight_units) lewat MINIMUM_FREIGHT_WEIGHT_KG di
-        // calculator.js. Akibatnya, shipment yang auto-switch dari IP/IE
-        // ke IPF/IEF (mis. dims 52x50x90cm) chargeable weight-nya cuma
-        // ~40-an kg (actual/dim mentah), bukan minimum 68kg per PDF FedEx
-        // ("A 68kg minimum rate charge per package shall apply to IPF or
-        // IEF shipments weighing less than 68kg"). Floor diterapkan PER
-        // freight unit (sesuai "per package"), lalu dijumlah.
-        cw = Math.max(cw, MINIMUM_FREIGHT_WEIGHT_KG)
 
         total += cw
         details.push({
