@@ -272,8 +272,24 @@ def _load_zones(csv_text):
 ZONE_INDEX = _load_zones(_ZONE_CSV)
 
 
-def find_country(name):
+# Alias kode negara pendek (ISO-2 dkk) -> nama lengkap sesuai key di ZONE_INDEX/
+# COMMERCIAL_ZONE_INDEX. Ditambahkan reaktif tiap ada laporan negara yang gagal
+# ditemukan gara-gara user pakai kode singkat (bukan nama lengkap) -- lihat
+# laporan "CN tidak muncul di commercial rate" (12 Sep 2026). Substring-match
+# fallback di find_country() TIDAK menangkap kasus ini ("cn" bukan substring
+# dari "china"), jadi butuh alias eksplisit.
+COUNTRY_CODE_ALIASES = {
+    "cn": "china",
+}
+
+
+def _normalize_country_key(name):
     key = name.strip().lower()
+    return COUNTRY_CODE_ALIASES.get(key, key)
+
+
+def find_country(name):
+    key = _normalize_country_key(name)
     if key in ZONE_INDEX:
         return ZONE_INDEX[key]
     matches = [v for k, v in ZONE_INDEX.items() if key in k]
@@ -818,7 +834,7 @@ def get_zone_commercial(country, direction, service, postal_code=None):
     China ditangani khusus (sama seperti promotional) krn Zone Index Exsis
     memecah China jadi 2 baris ('China (South)' / 'China (Excluding China
     South)') berdasar kode pos Fujian/Guangdong, BUKAN 1 baris 'China'."""
-    name_key = country.strip().lower()
+    name_key = _normalize_country_key(country)
     note = None
     if name_key == "china":
         override_zone, region_label = resolve_china_zone(postal_code)

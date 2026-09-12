@@ -31,6 +31,23 @@ export function isChinaSouth(postalCode) {
 // (ada 2 baris: '(Rest of Country)' & '(Western Region)'), TAPI keduanya
 // selalu zone yang SAMA (D) baik export maupun import, jadi aman
 // didefaultkan tanpa risiko salah harga.
+// Alias kode negara pendek (ISO-2 dkk) -> nama lengkap sesuai key di
+// ZONE_INDEX/COMMERCIAL_ZONE_INDEX. Ditambahkan reaktif tiap ada laporan
+// negara gagal ditemukan gara-gara user pakai kode singkat, bukan nama
+// lengkap -- lihat laporan "CN tidak muncul di commercial rate" (12 Sep
+// 2026). Fuzzy/substring match di findCountry() TIDAK menangkap ini ("cn"
+// bukan substring dari "china"). Sama persis dgn COUNTRY_CODE_ALIASES di
+// backend/carriers/fedex/zones.py -- kalau nambah alias baru, tambahkan di
+// KEDUA sisi (Python & JS) supaya tidak divergen lagi.
+const COUNTRY_CODE_ALIASES = {
+    'cn': 'china',
+}
+
+function normalizeCountryKey(name) {
+    const key = name.trim().toLowerCase()
+    return COUNTRY_CODE_ALIASES[key] || key
+}
+
 const PUBLISH_ALIASES = {
     'united states': 'united states (rest of country)',
     'usa': 'united states (rest of country)',
@@ -38,7 +55,8 @@ const PUBLISH_ALIASES = {
 }
 
 export function findCountry(name) {
-    const key = PUBLISH_ALIASES[name.trim().toLowerCase()] || name.trim().toLowerCase()
+    const normalized = normalizeCountryKey(name)
+    const key = PUBLISH_ALIASES[normalized] || normalized
     if (ZONE_INDEX[key]) return ZONE_INDEX[key]
     
     // Fuzzy search
@@ -155,7 +173,7 @@ export function findCountryCommercial(name, isImport) {
  * berdasarkan kode pos Fujian/Guangdong, BUKAN 1 baris "China").
  */
 export function getZoneCommercial(country, isImport, postalCode = null, city = null) {
-    const nameKey = country.trim().toLowerCase()
+    const nameKey = normalizeCountryKey(country)
     const dirKey = isImport ? 'import' : 'export'
 
     if (nameKey === 'china') {
