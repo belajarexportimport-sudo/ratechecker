@@ -37,7 +37,7 @@ app.post('/api/rates/calculate', async (c) => {
 app.post('/api/rates/compare', async (c) => {
   try {
     const reqBody = await c.req.json()
-    const result = compareRouter.compareRates(reqBody.base_request, reqBody.combinations)
+    const result = compareRouter.compareRates(reqBody.base_request, reqBody.combinations, reqBody.discounts)
     return c.json(result)
   } catch (err) {
     return c.json({ detail: err.message }, 400)

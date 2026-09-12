@@ -1,7 +1,7 @@
 import pricingRouter from '../pricing/router.js'
 import { mapService } from './service_mapping.js'
 
-function compareRates(baseRequest, combinations) {
+function compareRates(baseRequest, combinations, discounts = {}) {
     const results = []
     const unavailable = []
 
@@ -17,6 +17,15 @@ function compareRates(baseRequest, combinations) {
         const req = JSON.parse(JSON.stringify(baseRequest))
         req.carrier = carrier
         req.rate_type = rateType
+
+        // Diskon per-jenis-rate (mis. {"fedex:commercial": 10, "ups:a26": 8}).
+        // Kalau ada override utk kombinasi carrier:rate_type ini, pakai itu;
+        // kalau tidak, fallback ke discount_pct global di baseRequest (kalau
+        // ada) supaya request lama yang cuma kirim discount_pct tetap jalan.
+        const discountKey = `${carrier}:${rateType}`.toLowerCase()
+        if (discounts && Object.prototype.hasOwnProperty.call(discounts, discountKey)) {
+            req.discount_pct = discounts[discountKey]
+        }
 
         if (carrier.toLowerCase() !== baseCarrier) {
             const mapped = mapService(baseCarrier, carrier, baseService)

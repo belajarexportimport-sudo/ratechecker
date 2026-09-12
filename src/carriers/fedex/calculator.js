@@ -340,6 +340,18 @@ export function calculate(request) {
         surcharges[`Fuel Surcharge (${fsiPct}%)`] = pyRound(fsiBasis * (fsiPct / 100))
     }
 
+    // === VAT 1.1% ===
+    // PERBAIKAN: sebelumnya VAT 1.1% cuma dihitung di engine UPS
+    // (lihat ups/calculator.js STEP 6) -- FedEx TIDAK PERNAH mengenakan VAT
+    // sama sekali, baik di JS ini maupun di backend/carriers/fedex/calculator.py.
+    // Basis sama dgn UPS: base (setelah diskon) + SEMUA surcharge lain
+    // (termasuk fuel surcharge), dihitung SEBELUM VAT sendiri ditambahkan.
+    // Kalau ternyata basis/persentase FedEx seharusnya beda dari UPS,
+    // sesuaikan di sini.
+    let vatBasis = discountedBase
+    for (const v of Object.values(surcharges)) vatBasis += v
+    surcharges['VAT (1.1%)'] = pyRound(vatBasis * 0.011)
+
     // === Total ===
     let totalSurcharges = 0
     for (const v of Object.values(surcharges)) totalSurcharges += v
