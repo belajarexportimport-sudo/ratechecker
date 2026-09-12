@@ -25,6 +25,21 @@ export function findCountry(name) {
     throw new Error(`Negara '${name}' tidak ditemukan di UPS Zone Index.`)
 }
 
+export function effectiveCountryForZone(country, postalCode = null) {
+    // Sama seperti normalisasi internal getZone() (china -> "cn southern"),
+    // tapi diekspos supaya caller lain (calculator.js) bisa pakai nama yang
+    // SUDAH disesuaikan itu utk named-group override commercial rate
+    // A26/B26 (lihat rates/index.js getGroupKey()) -- kalau tidak, shipment
+    // China dengan kode pos Southern (Guangdong/Fujian) salah match ke
+    // grup "rest of china" (nilai zone 3) padahal seharusnya "china south"
+    // (nilai zone 10), walau zone sendiri sudah benar resolve ke 10.
+    const key = country.trim().toLowerCase()
+    if (key === "china" && postalCode && isChinaSouthern(postalCode)) {
+        return "cn southern"
+    }
+    return country
+}
+
 export function getZone(country, direction, service, postalCode = null) {
     let effectiveCountry = country.trim().toLowerCase()
     if (effectiveCountry === "china" && postalCode && isChinaSouthern(postalCode)) {

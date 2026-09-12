@@ -1,4 +1,4 @@
-import { getZone } from './zones.js'
+import { getZone, effectiveCountryForZone } from './zones.js'
 import { calculateBase } from './rates/index.js'
 import { pyRound } from '../../core/pyround.js'
 import {
@@ -49,8 +49,11 @@ export function calculate(request) {
         chargeableWeight = Math.max(chargeableWeight, 71)
     }
 
-    // === STEP 3: Base rate (kirimkan country untuk named-group A26/B26) ===
-    let basePrice = calculateBase(request.rate_type, service, direction, zone, chargeableWeight, country)
+    // === STEP 3: Base rate (kirimkan country utk named-group A26/B26 --
+    // pakai effectiveCountryForZone() supaya China Southern via kode pos
+    // match ke grup "china south", bukan "rest of china") ===
+    const groupCountry = effectiveCountryForZone(country, postalCode)
+    let basePrice = calculateBase(request.rate_type, service, direction, zone, chargeableWeight, groupCountry)
     if (basePrice === null) {
         throw new Error(
             `Tidak ada rate tersedia: direction='${direction}' service='${service}' ` +

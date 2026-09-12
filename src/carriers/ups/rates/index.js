@@ -7,31 +7,70 @@ import { A26_RATES, B26_RATES } from './commercial_data.js'
 // Tanpa ini, Jepang/Korea/HK/dll menggunakan zone generik → selisih ~6-7%
 // =============================================================================
 
-const NAMED_GROUP_MAP = {
-    // Japan, Korea, Taiwan
-    'japan':       'japan, korea, taiwan',
-    'south korea': 'japan, korea, taiwan',
-    'taiwan':      'japan, korea, taiwan',
-    // HK, Philippines, Thailand, Vietnam
-    'hong kong':   'hong kong, philippines, thailand, vietnam',
-    'philippines': 'hong kong, philippines, thailand, vietnam',
-    'thailand':    'hong kong, philippines, thailand, vietnam',
-    'vietnam':     'hong kong, philippines, thailand, vietnam',
-    // Standalone groups
-    'australia':   'australia',
-    'united states': 'united states',
-    // China regional
-    'china':       'china',
-    'cn southern': 'china south',
-    // Europe cluster
-    'france':      'france, germany, italy, netherlands',
-    'germany':     'france, germany, italy, netherlands',
-    'italy':       'france, germany, italy, netherlands',
-    'netherlands': 'france, germany, italy, netherlands',
+// =============================================================================
+// PERBAIKAN KRITIS #1: UPS A26/B26 Named-Group Override (v2 -- direction-aware)
+// Negara-negara tertentu punya tabel rate KHUSUS di A26/B26, bukan zone biasa.
+// Tanpa ini, Jepang/Korea/HK/dll menggunakan zone generik → selisih ~6-7%
+//
+// PERBAIKAN v2 (audit lanjutan): versi sebelumnya pakai SATU map flat yang
+// TIDAK peduli arah (import/export) -- padahal beberapa grup CUMA ada di
+// salah satu arah (mis. "japan, korea, taiwan" itu grup EXPORT; utk IMPORT,
+// Jepang justru punya tabel "japan" SENDIRIAN, beda nilai). Dibuktikan
+// dengan angka nyata (lihat AUDIT_UPS_COMMERCIAL.md / verifikasi Python):
+//   Import saver Korea 2kg : v1 (salah) Rp 633.100 vs benar Rp 580.300
+//   Import saver UK 2kg    : v1 (salah) Rp 662.900 vs benar Rp 641.400
+//   Import saver Jepang 2kg: v1 (salah) Rp 594.700 vs benar Rp 535.300
+// UK grup import ("france germany italy united kingdom") malah TIDAK ADA
+// di map v1 sama sekali. Port ulang ini persis meniru struktur Python
+// A26_B26_GROUPS (get_extended_group_key di commercial.py).
+// =============================================================================
+
+const NAMED_GROUPS = {
+    // Export Groups
+    'hong kong, philippines, thailand, vietnam':
+        ['hong kong', 'philippines', 'thailand', 'vietnam', 'hk', 'ph', 'th', 'vn'],
+    'japan, korea, taiwan':
+        ['japan', 'korea', 'south korea', 'kr', 'republic of korea', "korea, republic of", 'taiwan', 'jp', 'tw'],
+    'france, germany, italy, netherlands':
+        ['france', 'germany', 'italy', 'netherlands', 'fr', 'de', 'it', 'nl'],
+
+    // Import Groups
+    'south korea taiwan vietnam':
+        ['south korea', 'korea', 'kr', 'republic of korea', "korea, republic of", 'taiwan', 'tw', 'vietnam', 'vn'],
+    'france germany italy united kingdom':
+        ['france', 'germany', 'italy', 'united kingdom', 'uk', 'gb', 'great britain', 'fr', 'de', 'it'],
+    'japan': ['japan', 'jp'],
+
+    // Common (sama utk export & import)
+    'united states': ['united states', 'usa', 'us'],
+    'australia': ['australia', 'au'],
+    'rest of china': ['china', 'cn'],
+    'china south': ['china south', 'cn southern', 'southern china', 'china southern'],
 }
 
-function getGroupKey(countryName) {
-    return NAMED_GROUP_MAP[countryName.toLowerCase()] || null
+function getGroupKey(countryName, tableSrv) {
+    if (!countryName || !tableSrv) return null
+    const normalized = countryName.trim().toLowerCase()
+    const availableGroups = new Set(Object.keys(tableSrv))
+
+    // EXPLICIT: prioritaskan named header China di atas zone 3 & 10 (sama
+    // seperti urutan di Python/script.js -- urutan ini penting).
+    if ((normalized === 'china' || normalized === 'rest of china') && availableGroups.has('rest of china')) {
+        return 'rest of china'
+    }
+    if (['cn southern', 'southern china', 'china southern', 'china south'].includes(normalized)
+        && availableGroups.has('china south')) {
+        return 'china south'
+    }
+
+    if (availableGroups.has(normalized)) return normalized
+
+    for (const [groupKey, members] of Object.entries(NAMED_GROUPS)) {
+        if (members.includes(normalized) && availableGroups.has(groupKey)) {
+            return groupKey
+        }
+    }
+    return null
 }
 
 // =============================================================================
@@ -115,7 +154,7 @@ export function calculateBaseCommercial(rateType, service, direction, zone, weig
 
     // Coba named-group dulu
     let tableZone = null
-    const groupKey = getGroupKey(country)
+    const groupKey = getGroupKey(country, tableSrv)
     if (groupKey && tableSrv[groupKey]) {
         tableZone = tableSrv[groupKey]
     }
